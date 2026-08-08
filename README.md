@@ -47,7 +47,7 @@ node's agent port, it's on the strip.
   the ⚙ console, because everyone wants to see it fire.
 - **⛅ WeatherStar card** — a retro current-conditions card (temp, sky, wind,
   humidity) fed by the free NWS api.weather.gov — no API key. Add a
-   node and set .
+  `"type": "weather"` node and set `"weather": {"lat": .., "lon": ..}`.
   Outside temp + date also join the clock in the header.
 - **ENGINEER mode** — pick the instrument per metric (needle / LED / scope)
   from the ⚙ console; the panel remembers your loadout. Cards whose meters
