@@ -42,11 +42,22 @@ node's agent port, it's on the strip.
 
 ## Install (panel host — Linux)
 
+**Debian/Ubuntu/Pop!_OS — grab the `.deb` from
+[Releases](https://github.com/VonHoltenCodes/LCARS_strip/releases):**
+
+```bash
+sudo apt install ./lcars-strip_*_all.deb
+```
+
+**Any distro — from source:**
+
 ```bash
 git clone https://github.com/VonHoltenCodes/LCARS_strip.git
 cd LCARS_strip
 sudo ./install.sh
 ```
+
+(Building the `.deb` yourself: `./packaging/build-deb.sh` → `dist/`.)
 
 Open `http://<panel-host>:8899/`, hit **⚙ NODES**, and start adding IPs.
 
