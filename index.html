@@ -24,6 +24,7 @@
       <button class="pill" data-mode="needle">NEEDLE</button>
       <button class="pill" data-mode="led">LED</button>
       <button class="pill" data-mode="retro">RETRO</button>
+      <button class="pill" data-mode="engineer">ENGINEER</button>
     </div>
     <button class="pill gearpill" id="gear">⚙ NODES</button>
     <div class="side-block b-amber"></div>
@@ -36,8 +37,10 @@
     <span class="tb-seg s1"></span>
     <span class="tb-label">FLEET MONITOR</span>
     <span class="tb-seg s2"></span>
+    <span class="lcd tb-date" id="dt">--- -- ---</span>
     <span class="lcd" id="clock">00:00:00</span>
     <span class="tb-up">UP <b id="upt">00d 00:00</b></span>
+    <span class="lcd tb-temp" id="otemp" hidden>--°F</span>
     <span class="netstat" id="netstat" data-s="down">◌ LINK</span>
     <span class="tb-seg s3"></span>
   </header>
@@ -56,6 +59,18 @@
   <!-- node console (add/remove) overlay -->
   <div class="drill" id="cfg" hidden>
     <div class="drill-panel" id="cfgPanel"></div>
+  </div>
+
+  <!-- RED ALERT splash (original homage — RA-style steel + pinwheel) -->
+  <div class="rasplash" id="rasplash" hidden>
+    <div class="ras-fan"></div>
+    <div class="ras-mid">
+      <div class="ras-bar"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="ras-word">RED&nbsp;ALERT</div>
+      <div class="ras-bar"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="ras-sub" id="rasSub">ALL STATIONS</div>
+      <button class="ras-clear" id="rasClear">[ CLEAR ]</button>
+    </div>
   </div>
 
 </div>

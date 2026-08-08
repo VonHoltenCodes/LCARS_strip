@@ -244,3 +244,110 @@ button{font-family:var(--font-pixel);color:inherit;background:none;border:none;c
 
 .cfg-title-row{align-items:center;border-bottom:1px solid rgba(255,153,0,.35);padding-bottom:6px;}
 .cfg-title-row .mlab{white-space:nowrap;}
+
+/* ---- header date + outside temp ---- */
+.tb-date{font-size:11px;opacity:.9;margin-right:2px;}
+.tb-temp{color:#ffd11a;text-shadow:0 0 8px rgba(255,209,26,.6);}
+
+/* ---- stacked meters (all-scope / all-LED cards): wide rows, bench-scope style ---- */
+.node.stack .meters{align-items:stretch;}
+.stackcol{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0;}
+.g-row{flex:1;display:flex;align-items:stretch;gap:4px;min-height:0;}
+.g-row .mlab-side{width:26px;flex:none;display:flex;align-items:center;justify-content:center;
+  font:700 7px "Pixelify Sans",monospace;color:#8fb0d0;letter-spacing:.08em;
+  writing-mode:vertical-rl;transform:rotate(180deg);}
+.g-row .face{flex:1;height:auto;min-height:0;}
+.g-row .face canvas{width:100%;height:100%;}
+.g-row .ledbar{height:100%;}
+
+/* ---- RED ALERT ---- */
+@keyframes ra-strip{
+  0%,100%{box-shadow:inset 0 0 0 2px rgba(255,45,30,.5),0 0 18px rgba(255,45,30,.35);}
+  50%{box-shadow:inset 0 0 0 4px rgba(255,45,30,.95),0 0 44px rgba(255,45,30,.8);}}
+@keyframes ra-card{
+  0%,100%{box-shadow:0 0 6px rgba(255,45,30,.5);}
+  50%{box-shadow:0 0 26px rgba(255,45,30,.95),inset 0 0 14px rgba(255,45,30,.35);}}
+@keyframes ra-blink{50%{opacity:.25;}}
+.strip.redalert{animation:ra-strip .85s ease-in-out infinite;}
+.strip.redalert .tb-label{color:#ff3b2e;text-shadow:0 0 12px #ff3b2e;
+  animation:ra-blink .85s steps(2) infinite;}
+.node.alarm{border-color:#ff3b2e;animation:ra-card .85s ease-in-out infinite;}
+
+/* ---- WeatherStar 4000 conditions card ---- */
+@font-face{font-family:'Star4000';src:url('../assets/fonts/Star4000.woff') format('woff');
+  font-display:swap;}
+.wxcard{background:linear-gradient(178deg,#12277d 0%,#1c3aa8 46%,#0c1a56 100%);
+  border-color:#3a55c0;display:flex;flex-direction:column;font-family:'Star4000',"Pixelify Sans",monospace;}
+.wx-head{background:linear-gradient(180deg,#0a1440,#152a86);padding:2px 8px;
+  border-bottom:1px solid #3a55c0;}
+.wx-title{font:700 12px 'Star4000',"Pixelify Sans",monospace;color:#ffd11a;
+  letter-spacing:.10em;text-shadow:2px 2px 0 #000;}
+.wx-body{flex:1;display:flex;gap:8px;padding:4px 10px;min-height:0;align-items:center;}
+.wx-left{flex:1;text-align:center;}
+.wx-temp{font:700 44px 'Star4000',"Pixelify Sans",monospace;color:#fff;
+  text-shadow:3px 3px 0 #000;line-height:1;}
+.wx-cond{font:700 13px 'Star4000',"Pixelify Sans",monospace;color:#ffd11a;
+  text-shadow:2px 2px 0 #000;margin-top:2px;}
+.wx-rows{flex:1.1;display:flex;flex-direction:column;gap:4px;}
+.wx-row{display:flex;justify-content:space-between;gap:6px;}
+.wx-lab{font:700 11px 'Star4000',"Pixelify Sans",monospace;color:#8fb4ff;text-shadow:2px 2px 0 #000;}
+.wx-val{font:700 12px 'Star4000',"Pixelify Sans",monospace;color:#fff;text-shadow:2px 2px 0 #000;}
+.wx-place{font:700 10px 'Star4000',"Pixelify Sans",monospace;color:#8fb4ff;
+  text-align:center;padding:1px 0 3px;text-shadow:2px 2px 0 #000;letter-spacing:.06em;}
+.wxcard.offline{opacity:.5;filter:grayscale(.4);}
+
+/* ---- console: engineering row ---- */
+.cfg-eng-row{align-items:center;border-bottom:1px solid rgba(255,153,0,.35);padding-bottom:6px;}
+.cfg-eng{display:flex;gap:4px;flex:1;}
+.cfg-btn.eng{background:linear-gradient(180deg,#7d5cff,#5c3fd0);color:#eae4ff;font-size:10px;}
+.cfg-btn.rm.wide{padding:5px 10px;font-size:10px;}
+/* five pills + gear: tighten the sidebar stack */
+.mode-pills .pill{padding-top:2px;padding-bottom:2px;}
+
+/* ---- RED ALERT overlay (original RA-style homage: pinwheel + steel + beveled red) ---- */
+.rasplash{position:absolute;inset:0;z-index:60;display:flex;align-items:center;
+  justify-content:center;overflow:hidden;cursor:pointer;
+  background:rgba(12,4,6,.52);backdrop-filter:blur(1.5px);}
+.ras-fan{position:absolute;left:-30%;top:-260%;width:160%;height:620%;
+  background:repeating-conic-gradient(from 0deg,#190c0e 0deg 15deg,#301114 15deg 30deg);
+  animation:ras-spin 16s linear infinite;opacity:.42;}
+@keyframes ras-spin{to{transform:rotate(360deg);}}
+.ras-mid{position:relative;text-align:center;}
+.ras-bar{height:14px;margin:0 auto;width:min(620px,78vw);border-radius:3px;
+  background:linear-gradient(180deg,#f4f8fb 0%,#9dabb8 30%,#47525c 55%,#cbd6df 78%,#333c45 100%);
+  box-shadow:0 3px 8px rgba(0,0,0,.85),inset 0 0 2px rgba(255,255,255,.8);
+  display:flex;justify-content:space-around;align-items:center;}
+.ras-bar i{width:6px;height:6px;border-radius:50%;
+  background:radial-gradient(circle at 35% 30%,#f2f6fa,#6a747e 60%,#1d2228);
+  box-shadow:0 1px 1px rgba(255,255,255,.45);}
+.ras-word{font:900 76px/0.95 Saira,Impact,"Arial Black","Pixelify Sans",sans-serif;
+  letter-spacing:.01em;padding:8px 0 12px;
+  background:linear-gradient(180deg,#ffc9bf 0%,#ef4433 26%,#8f0f08 52%,#ff7a63 68%,#570502 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 0 1px #000) drop-shadow(2px 3px 0 #39404a)
+         drop-shadow(-2px 3px 0 #39404a) drop-shadow(0 7px 12px rgba(0,0,0,.9));
+  animation:ras-throb .85s ease-in-out 4;}
+@keyframes ras-throb{
+  0%,100%{transform:scale(1);filter:drop-shadow(0 0 1px #000) drop-shadow(2px 3px 0 #39404a)
+    drop-shadow(-2px 3px 0 #39404a) drop-shadow(0 0 10px rgba(255,45,30,.35));}
+  50%{transform:scale(1.045);filter:drop-shadow(0 0 1px #000) drop-shadow(2px 3px 0 #39404a)
+    drop-shadow(-2px 3px 0 #39404a) drop-shadow(0 0 34px rgba(255,45,30,.95));}}
+.ras-sub{font:700 14px "Pixelify Sans",monospace;color:#ffd11a;letter-spacing:.26em;
+  margin-top:12px;text-shadow:0 0 10px rgba(255,60,40,.85);
+  animation:ra-blink .5s steps(2) 8;}
+.ras-clear{margin-top:12px;background:linear-gradient(180deg,#3c454f,#181d23);
+  border:1px solid #78828d;border-radius:4px;color:#ffd7d2;cursor:pointer;
+  font:700 12px "Pixelify Sans",monospace;letter-spacing:.18em;padding:6px 22px;
+  box-shadow:0 2px 6px rgba(0,0,0,.7),inset 0 1px 0 rgba(255,255,255,.25);}
+.ras-clear:active{filter:brightness(1.4);}
+.rasplash.go .ras-mid{animation:ras-in .30s cubic-bezier(.2,1.5,.4,1);}
+@keyframes ras-in{0%{transform:scale(1.4);opacity:0;}100%{transform:scale(1);opacity:1;}}
+/* caution-tape frame (job-site nod): yellow/black stripes, brief crawl on entry */
+.rasplash::before{content:"";position:absolute;inset:0;padding:13px;z-index:2;
+  background:repeating-linear-gradient(45deg,#ffd11a 0 18px,#141410 18px 36px);
+  -webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);
+  -webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none;
+  box-shadow:inset 0 0 18px rgba(0,0,0,.8);}
+.rasplash.go::before{animation:ras-crawl .6s linear 4;}
+@keyframes ras-crawl{to{background-position:51px 0;}}
+.rasplash[hidden]{display:none;}

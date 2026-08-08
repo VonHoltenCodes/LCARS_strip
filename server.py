@@ -25,7 +25,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 CONF_PATHS = [p for p in (os.environ.get("LCARS_CONF"),
                           "/etc/lcars-strip/fleet.json",
                           os.path.join(ROOT, "fleet.json")) if p]
-TYPES = ("linux", "windows", "xp-snmp")
+TYPES = ("linux", "windows", "xp-snmp", "weather")
 
 # ---------------------------------------------------------------- config
 _cfg_lock = threading.Lock()
@@ -38,11 +38,14 @@ def slugify(s):
 def norm_node(n):
     """Fill defaults; raise ValueError on junk."""
     if not isinstance(n, dict): raise ValueError("node must be an object")
-    host = str(n.get("host", "")).strip()
-    if not host or re.search(r"[\s/]", host): raise ValueError("bad host: %r" % host)
     t = n.get("type", "linux")
     if t not in TYPES: raise ValueError("type must be one of %s" % (TYPES,))
-    name = str(n.get("name") or host).strip()
+    host = str(n.get("host", "")).strip()
+    if t == "weather":
+        host = ""                                    # weather card has no host
+    elif not host or re.search(r"[\s/]", host):
+        raise ValueError("bad host: %r" % host)
+    name = str(n.get("name") or host or "WEATHER").strip()
     out = {"id": n.get("id") or slugify(name), "name": name, "host": host, "type": t,
            "use": str(n.get("use", "")), "hero": bool(n.get("hero")),
            "retro": bool(n.get("retro")), "gpu": bool(n.get("gpu")),
@@ -56,9 +59,13 @@ def norm_config(c):
     nodes = [norm_node(n) for n in c.get("nodes", [])]
     ids = [n["id"] for n in nodes]
     if len(ids) != len(set(ids)): raise ValueError("duplicate node ids")
+    w = c.get("weather")
+    weather = ({"lat": float(w["lat"]), "lon": float(w["lon"])}
+               if isinstance(w, dict) and "lat" in w and "lon" in w else None)
     return {"title": str(c.get("title") or "FLEET MONITOR")[:40],
             "port": int(c.get("port", 8899)),
             "poll_seconds": max(1, int(c.get("poll_seconds", 2))),
+            "weather": weather,
             "nodes": nodes}
 
 def load_config():
@@ -82,6 +89,7 @@ def save_config(c):
     os.replace(tmp, _cfg_path)
     with _cfg_lock:
         _cfg = c
+    _wx["station"] = None          # re-resolve if the location changed
 
 # ---------------------------------------------------------------- helpers
 def http_get(url, timeout=2.5):
@@ -262,7 +270,12 @@ def snmp_metrics(n):
     o["online"] = bool(o.get("cpu") is not None or "ram" in o or lat is not None)
     return o
 
-EXTRACT = {"linux": linux_metrics, "windows": win_metrics, "xp-snmp": snmp_metrics}
+def weather_metrics(n):
+    return {"online": _wx["tempF"] is not None,
+            "wx": {k: _wx[k] for k in ("tempF", "cond", "windMph", "windDir", "rh", "place", "station")}}
+
+EXTRACT = {"linux": linux_metrics, "windows": win_metrics, "xp-snmp": snmp_metrics,
+           "weather": weather_metrics}
 
 # ---------------------------------------------------------------- poller
 _snap_lock = threading.Lock()
@@ -288,6 +301,48 @@ def poller():
                 _snapshot.update(dict(results))
         time.sleep(wait)
 
+# ------------------------------------------------- outside temp (api.weather.gov)
+_wx = {"tempF": None, "station": None, "cond": None, "windMph": None,
+       "windDir": None, "rh": None, "place": None}
+
+def wx_get(url):
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "LCARS_strip (github.com/VonHoltenCodes/LCARS_strip)",
+        "Accept": "application/geo+json"})
+    with urllib.request.urlopen(req, timeout=8) as r:
+        return json.load(r)
+
+def wx_poll():
+    while True:
+        with _cfg_lock:
+            w = _cfg.get("weather") or {}
+        lat, lon = w.get("lat"), w.get("lon")
+        if lat is None or lon is None:
+            _wx["tempF"] = None
+            time.sleep(60); continue
+        try:
+            if not _wx["station"]:
+                p = wx_get("https://api.weather.gov/points/%.4f,%.4f" % (float(lat), float(lon)))
+                rl = p["properties"].get("relativeLocation", {}).get("properties", {})
+                if rl.get("city"): _wx["place"] = "%s, %s" % (rl["city"], rl.get("state", ""))
+                st = wx_get(p["properties"]["observationStations"])
+                _wx["station"] = st["features"][0]["properties"]["stationIdentifier"]
+            o = wx_get("https://api.weather.gov/stations/%s/observations/latest" % _wx["station"])
+            pr = o["properties"]
+            c = pr["temperature"]["value"]
+            _wx["tempF"] = round(c * 9 / 5 + 32) if c is not None else None
+            _wx["cond"] = pr.get("textDescription") or None
+            ws = pr.get("windSpeed", {}).get("value")
+            _wx["windMph"] = round(ws * 0.621371) if ws is not None else None
+            wd = pr.get("windDirection", {}).get("value")
+            if wd is not None:
+                _wx["windDir"] = ["N","NE","E","SE","S","SW","W","NW"][round(wd / 45) % 8]
+            rh = pr.get("relativeHumidity", {}).get("value")
+            _wx["rh"] = round(rh) if rh is not None else None
+        except Exception:
+            pass                      # transient — keep the last reading
+        time.sleep(600)               # NWS updates hourly-ish; 10 min is plenty
+
 def fleet():
     with _cfg_lock:
         nodes = list(_cfg["nodes"]); title = _cfg.get("title", "FLEET MONITOR")
@@ -299,7 +354,7 @@ def fleet():
         out.append({"id": n["id"], "name": n["name"], "host": n["host"],
                     "type": n["type"], "use": n["use"], "hero": n["hero"],
                     "retro": n["retro"], "gpu": n["gpu"], "hw": n["hw"], **m})
-    return {"title": title, "nodes": out}
+    return {"title": title, "tempF": _wx["tempF"], "nodes": out}
 
 # ---------------------------------------------------------------- probe
 def probe(host):
@@ -403,6 +458,7 @@ class H(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     load_config()
     threading.Thread(target=poller, daemon=True).start()
+    threading.Thread(target=wx_poll, daemon=True).start()
     port = int(os.environ.get("LCARS_PORT") or _cfg.get("port", 8899))
     print("lcars-strip: config=%s nodes=%d port=%d" % (_cfg_path, len(_cfg["nodes"]), port), flush=True)
     ThreadingHTTPServer(("0.0.0.0", port), H).serve_forever()

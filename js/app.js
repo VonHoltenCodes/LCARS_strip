@@ -23,6 +23,7 @@ function upsert(a){
       online:true,up:0,upAt:0,latency:null,gputemp:null,pingHist:Array.from({length:40},()=>0)};
     byId[a.id]=n; nodes.push(n); }
   n.name=a.name;n.use=a.use||'';n.hw=a.hw||n.hw;n.hasGpu=a.gpu===true;n.host=a.host||n.host;
+  if(a.wx)n.wx=a.wx;
   ['cpu','net','ram','disk'].forEach(k=>{ if(typeof a[k]==='number') n.t[k]=a[k]; });
   if(typeof a.gpuutil==='number') n.t.gpu=a.gpuutil;
   n.online=a.online!==false;
@@ -37,8 +38,10 @@ function perfNow(){ return (typeof performance!=='undefined'?performance.now():0
 async function pollFleet(){
   try{
     const r=await fetch('/api/fleet',{cache:'no-store'}); const d=await r.json();
-    if(d.title){const tl=$('.tb-label');
+    if(d.title&&!raActive){const tl=$('.tb-label');
       if(tl&&tl.textContent!==d.title){tl.textContent=d.title;document.title='LCARS_strip // '+d.title;}}
+    const ot=$('#otemp');
+    if(ot){if(typeof d.tempF==='number'){ot.hidden=false;ot.textContent=d.tempF+'°F';}else ot.hidden=true;}
     const list=d.nodes||[];
     const key=list.map(x=>x.id).join(',');
     if(key!==memberKey){                       // membership changed: reset model
@@ -47,6 +50,7 @@ async function pollFleet(){
       list.forEach(upsert); applySavedOrder(); buildStrip();
       built=nodes.length>0; $('#strip').classList.toggle('booting',!built);
     } else list.forEach(upsert);
+    updateRedAlert();
     net('ok');
   }catch(e){ net('down'); }
 }
@@ -54,7 +58,12 @@ function net(s){ const b=$('#netstat'); if(b){ b.dataset.s=s; b.textContent = s=
 setInterval(pollFleet,2000); pollFleet();
 
 let forceMode='mix';
-function meterType(mk){ if(forceMode==='retro')return'scope';
+/* ENGINEER mode: the operator picks the instrument per metric (persisted per display) */
+const ENG_DEF={cpu:'needle',net:'scope',ram:'led',disk:'led'};
+let engMeters=(()=>{try{return JSON.parse(localStorage.getItem('lcars.engineerMeters'))||{};}catch(_){return{};}})();
+function saveEng(){try{localStorage.setItem('lcars.engineerMeters',JSON.stringify(engMeters));}catch(_){}}
+function meterType(mk){ if(forceMode==='engineer')return engMeters[mk]||ENG_DEF[mk];
+  if(forceMode==='retro')return'scope';
   if(forceMode==='needle')return'needle';
   if(forceMode==='led')return'led'; return (mk==='cpu'||mk==='net')?'needle':'led'; }
 function isRetro(n){ return forceMode==='retro' || (forceMode==='mix' && n.retro); }
@@ -71,17 +80,20 @@ function drawScope(cv,v){
   if(!cv._ctx||cv._w!==cv.offsetWidth||cv._h!==cv.offsetHeight){if(!setupCanvas(cv))return;}
   const x=cv._ctx,w=cv._w,h=cv._h;x.clearRect(0,0,w,h);
   cv._ph=(cv._ph||0)+0.055+(v/100)*0.30;              // hotter = faster sweep
+  // wide strip (stacked row): trace fills, digit lives on the right edge
+  const wide=w>h*2, tw=wide?w-30:w, mid=wide?h*0.5:h*0.42, tb=wide?h:h*0.80;
   // graticule
   x.lineWidth=1;x.strokeStyle='rgba(60,255,130,.13)';
   for(let i=1;i<4;i++){
-    x.beginPath();x.moveTo(0,h*i*0.22);x.lineTo(w,h*i*0.22);x.stroke();
-    x.beginPath();x.moveTo(w*i/4,0);x.lineTo(w*i/4,h*0.80);x.stroke();}
+    x.beginPath();x.moveTo(0,tb*i/4);x.lineTo(tw,tb*i/4);x.stroke();}
+  for(let i=1;i<(wide?8:4);i++){
+    x.beginPath();x.moveTo(tw*i/(wide?8:4),0);x.lineTo(tw*i/(wide?8:4),tb);x.stroke();}
   x.strokeStyle='rgba(60,255,130,.22)';
-  x.beginPath();x.moveTo(0,h*0.42);x.lineTo(w,h*0.42);x.stroke();
+  x.beginPath();x.moveTo(0,mid);x.lineTo(tw,mid);x.stroke();
   // trace (drawn twice: soft afterglow + bright beam)
-  const col=zoneColor(v),mid=h*0.42,amp=1.5+(v/100)*h*0.30,cyc=1.5+(v/100)*2.5;
+  const col=zoneColor(v),amp=1.5+(v/100)*(wide?h*0.40:h*0.30),cyc=(1.5+(v/100)*2.5)*(wide?2:1);
   const trace=()=>{x.beginPath();
-    for(let px=0;px<=w;px++){const t=px/w,
+    for(let px=0;px<=tw;px++){const t=px/tw,
       y=mid+Math.sin(t*cyc*6.283+cv._ph)*amp*(0.72+0.28*Math.sin(t*17+cv._ph*0.63));
       px?x.lineTo(px,y):x.moveTo(px,y);}x.stroke();};
   x.lineCap='round';
@@ -90,8 +102,9 @@ function drawScope(cv,v){
   x.shadowBlur=0;
   // digital readout
   x.fillStyle=col;x.font='11px "DSEG7 Classic",monospace';
-  x.textAlign='center';x.textBaseline='alphabetic';
-  x.fillText(String(Math.round(v)).padStart(2,'0'),w/2,h*0.99);
+  x.textAlign='center';x.textBaseline=wide?'middle':'alphabetic';
+  if(wide)x.fillText(String(Math.round(v)).padStart(2,'0'),w-14,h*0.52);
+  else x.fillText(String(Math.round(v)).padStart(2,'0'),w/2,h*0.99);
 }
 function drawNeedle(cv,v,retro){
   if(!cv._ctx||cv._w!==cv.offsetWidth||cv._h!==cv.offsetHeight){if(!setupCanvas(cv))return;}
@@ -137,17 +150,26 @@ function nodeHead(n,roleTxt){const head=el('div','node-head'),hl=el('div','nh-le
   head.appendChild(hl);head.appendChild(el('span','node-role',roleTxt||(n.hero?'HUB':n.type==='xp-snmp'?'lite':'node')));return head;}
 function buildFull(n){
   const retro=isRetro(n);
-  const col=el('div','node'+(n.hero?' hero':'')+(n.retro?' retrocard':''));col.dataset.id=n.id;col._node=n;col._g={};
+  const MKS=['cpu','net','ram','disk'];
+  const types={};MKS.forEach(mk=>{let t=meterType(mk);
+    if(t==='needle'&&retro)t='scope';types[mk]=t;});
+  // no needles anywhere -> stack the meters as wide horizontal rows
+  // (scopes + LED bars want width, not height — reads best on the 1U panel)
+  const stacked=!MKS.some(mk=>types[mk]==='needle');
+  const col=el('div','node'+(n.hero?' hero':'')+(n.retro?' retrocard':'')+(stacked?' stack':''));
+  col.dataset.id=n.id;col._node=n;col._g={};
   col.appendChild(nodeHead(n));
   const meters=el('div','meters');
-  ['cpu','net','ram','disk'].forEach(mk=>{
-    let type=meterType(mk);
-    if(type==='needle'&&retro)type='scope';   // retro cards: scope replaces needle
-    const g=el('div','gauge'),face=el('div','face'+(retro?' retro':''));
+  const host=stacked?el('div','stackcol'):meters;
+  MKS.forEach(mk=>{
+    const type=types[mk];
+    const g=el('div',stacked?'g-row':'gauge'),face=el('div','face'+(retro?' retro':''));
     if(type==='led'){const bar=el('div','ledbar');buildLedbar(bar);face.appendChild(bar);g._bar=bar;}
     else{const cv=el('canvas');face.appendChild(cv);g._cv=cv;g._retro=retro;g._scope=(type==='scope');}
-    g.appendChild(face);g.appendChild(el('div','mlab',mk.toUpperCase()));
-    meters.appendChild(g);col._g[mk]=g;});
+    if(stacked){g.appendChild(el('div','mlab-side',mk.toUpperCase()));g.appendChild(face);}
+    else{g.appendChild(face);g.appendChild(el('div','mlab',mk.toUpperCase()));}
+    host.appendChild(g);col._g[mk]=g;});
+  if(stacked)meters.appendChild(host);
   const tankMk=n.hasGpu?'gpu':'net';
   const tank=el('div','tank');tank.appendChild(el('div','tcap',n.hasGpu?'GPU':'NET'));
   const fill=el('div','fill');tank.appendChild(fill);meters.appendChild(tank);
@@ -160,11 +182,76 @@ function buildFull(n){
   col.appendChild(row);
   return col;
 }
-function buildStrip(){ content.innerHTML='';
-  nodes.forEach(n=>content.appendChild(buildFull(n)));
+/* WeatherStar-style current-conditions card (data: backend wx poller / NWS) */
+function buildWeather(n){
+  const col=el('div','node wxcard');col.dataset.id=n.id;col._node=n;
+  const head=el('div','wx-head');
+  head.appendChild(el('span','wx-title','CURRENT CONDITIONS'));col.appendChild(head);
+  const body=el('div','wx-body');
+  const left=el('div','wx-left');
+  const t=el('div','wx-temp','--°');left.appendChild(t);
+  const c=el('div','wx-cond','—');left.appendChild(c);
+  body.appendChild(left);
+  const rows=el('div','wx-rows');
+  const mk=lab=>{const r=el('div','wx-row');r.appendChild(el('span','wx-lab',lab));
+    const v=el('span','wx-val','--');r.appendChild(v);rows.appendChild(r);return v;};
+  col._wt=t;col._wc=c;col._ww=mk('WIND');col._wh=mk('HUMIDITY');
+  body.appendChild(rows);col.appendChild(body);
+  col._wp=el('div','wx-place','—');col.appendChild(col._wp);
+  return col;
 }
+function renderWeather(col,n){
+  const w=n.wx||{};
+  col.classList.toggle('offline',!n.online);
+  col._wt.textContent=(w.tempF!=null?w.tempF:'--')+'°';
+  col._wc.textContent=w.cond||'—';
+  col._ww.textContent=w.windMph!=null?((w.windDir||'')+' '+w.windMph+' MPH').trim():'--';
+  col._wh.textContent=w.rh!=null?w.rh+'%':'--';
+  col._wp.textContent=w.place||(w.station?'STN '+w.station:'—');
+}
+function buildStrip(){ content.innerHTML='';
+  nodes.forEach(n=>content.appendChild(n.type==='weather'?buildWeather(n):buildFull(n)));
+}
+
+/* ---- RED ALERT: sustained red-zone metric or offline node fires ship-wide.
+   CLEAR acknowledges: alarm stands down, fault stays in the marquee until the
+   node actually recovers; a new fault (or a relapse) re-fires. ---- */
+let raStreak={},raAck={},raTestUntil=0,raActive=false,raName='';
+function updateRedAlert(){
+  let worst=null;
+  nodes.forEach(n=>{
+    if(n.type==='weather')return;
+    const bad=!n.online||n.m.cpu>=88||n.m.ram>=88||n.m.disk>=96||(n.gputemp||0)>=85;
+    if(!bad)delete raAck[n.id];                        // recovered -> ack expires
+    raStreak[n.id]=bad?(raStreak[n.id]||0)+1:0;
+    if(raStreak[n.id]>=3&&!raAck[n.id]&&!worst)worst=n;});   // 3 polls (~6s) sustained
+  const act=!!worst||Date.now()<raTestUntil;
+  document.querySelectorAll('.node').forEach(c=>
+    c.classList.toggle('alarm',!!(worst&&c._node===worst)));
+  if(act!==raActive){raActive=act;
+    strip.classList.toggle('redalert',act);
+    const tl=$('.tb-label');
+    if(act){tl.dataset.prev=tl.textContent;tl.textContent='⚠ RED ALERT ⚠';
+      showSplash(worst);}
+    else{if(tl.dataset.prev)tl.textContent=tl.dataset.prev;hideSplash();}}
+  raName=worst?worst.name:(act?'DRILL':'');
+}
+const rasplash=$('#rasplash');
+function showSplash(worst){                             // persists, pulsing, until CLEAR
+  if(!rasplash)return;
+  $('#rasSub').textContent=worst?('◣ '+worst.name+' IS FAILING ◢'):'◣ DRILL — ALL STATIONS ◢';
+  rasplash.hidden=false;rasplash.classList.add('go');
+}
+function hideSplash(){if(rasplash){rasplash.hidden=true;rasplash.classList.remove('go');}}
+function raClear(){                                     // acknowledge everything bad
+  nodes.forEach(n=>{if(raStreak[n.id]>=1)raAck[n.id]=true;});
+  raTestUntil=0;hideSplash();updateRedAlert();
+}
+if(rasplash)rasplash.addEventListener('click',raClear); // tap anywhere = acknowledge
+document.querySelector('.tb-label').addEventListener('click',()=>{if(raActive)raClear();});
 function render(){
   document.querySelectorAll('.node').forEach(col=>{const n=col._node; if(!n)return;
+    if(n.type==='weather'){renderWeather(col,n);return;}
     col.classList.toggle('offline',!n.online);
     ['cpu','net','ram','disk','gpu'].forEach(k=>{
       const tgt=n.online?n.t[k]:0; n.m[k]+=(tgt-n.m[k])*0.11;});
@@ -182,21 +269,28 @@ function render(){
 function fmtUp(s){s=Math.max(0,s|0);const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
   return String(d).padStart(2,'0')+'d '+String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');}
 function liveUp(n){ return n.up + (n.upAt?(perfNow()-n.upAt):0); }
+const DAYS=['SUN','MON','TUE','WED','THU','FRI','SAT'],
+      MONS=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
 setInterval(()=>{const t=new Date();
   $('#clock').textContent=[t.getHours(),t.getMinutes(),t.getSeconds()].map(x=>String(x).padStart(2,'0')).join(':');
+  $('#dt').textContent=DAYS[t.getDay()]+' '+String(t.getDate()).padStart(2,'0')+' '+MONS[t.getMonth()];
   const p=nodes.find(n=>n.hero)||nodes[0]; if(p)$('#upt').textContent=fmtUp(liveUp(p));},1000);
 function neonEgg(){ // colour by word: NEON=pink, pulse=blue, Tech=pink, shop=blue
   const words=[['NEON','#ff3df0'],['pulse','#3df0ff'],['Tech','#ff3df0'],['shop','#3df0ff']];
   let o='';words.forEach(([w,c])=>o+=`<span style="color:${c};text-shadow:0 0 6px ${c}">${w}</span>`);
   return '&nbsp;&nbsp;&nbsp;✦ '+o+' ✦&nbsp;&nbsp;&nbsp;';}
 function buildTicker(){
-  const off=nodes.filter(n=>!n.online).length;
-  const parts=[off?`<span class="warn">◉ ${off} NODE${off>1?'S':''} OFFLINE</span>`
-                  :'<span class="ok">◉ FLEET NOMINAL</span>'];
-  nodes.forEach(n=>{const hot=n.m.cpu>85||(n.gputemp||0)>80||!n.online;
-    parts.push('&nbsp;&nbsp;•&nbsp;&nbsp;'+n.name+' '+
-      (!n.online?'<span class="warn">OFFLINE</span>':hot?'<span class="warn">HOT</span>':'<span class="ok">OK</span>')+
-      ' &nbsp; cpu '+Math.round(n.m.cpu)+'%');});
+  const off=nodes.filter(n=>n.type!=='weather'&&!n.online).length;
+  const parts=[];
+  if(raActive)parts.push(`<span class="warn">🚨 RED ALERT — ${raName} 🚨</span>`);
+  parts.push(off?`<span class="warn">◉ ${off} NODE${off>1?'S':''} OFFLINE</span>`
+                :'<span class="ok">◉ FLEET NOMINAL</span>');
+  nodes.forEach(n=>{if(n.type==='weather')return;
+    const hot=n.m.cpu>85||(n.gputemp||0)>80||!n.online;
+    const st=raAck[n.id]?'<span class="warn">⚠ FAULT·ACK</span>'
+            :!n.online?'<span class="warn">OFFLINE</span>'
+            :hot?'<span class="warn">HOT</span>':'<span class="ok">OK</span>';
+    parts.push('&nbsp;&nbsp;•&nbsp;&nbsp;'+n.name+' '+st+' &nbsp; cpu '+Math.round(n.m.cpu)+'%');});
   parts.push('&nbsp;&nbsp;•&nbsp;&nbsp;<span class="warn">'+nodes.length+' nodes · direct poll</span>');
   parts.push(neonEgg());
   $('#ticker').innerHTML=parts.join('')+'&nbsp;&nbsp;&nbsp;';}
@@ -208,7 +302,7 @@ document.querySelectorAll('.pill').forEach(p=>p.addEventListener('click',()=>{
 
 /* ---- drill-down ---- */
 const drill=$('#drill'),drillPanel=$('#drillPanel');let drillNode=null;
-function openDrill(n){drillNode=n;drill.hidden=false;
+function openDrill(n){if(!n||n.type==='weather')return; drillNode=n;drill.hidden=false;
   const hwRows=Object.entries(n.hw).map(([k,val])=>`<div class="hwrow"><b>${k}</b><span>${val}</span></div>`).join('');
   drillPanel._cells=null;
   const link = n.type==='xp-snmp' ? 'SNMP direct' : n.type==='windows' ? 'exporter :9182' : 'netdata :19999';
@@ -283,6 +377,11 @@ function paintCfg(){
        <button class="cfg-btn" id="btnTitle">SET</button>
      </div>
      <div class="cfg-list" id="cfgList"></div>
+     <div class="cfg-row cfg-eng-row">
+       <span class="mlab">ENGINEERING</span>
+       <span class="cfg-eng" id="engBtns"></span>
+       <button class="cfg-btn rm wide" id="btnDrill">🚨 RED ALERT DRILL</button>
+     </div>
      <div class="cfg-add">
        <div class="mlab">ADD NODE</div>
        <div class="cfg-row">
@@ -315,6 +414,18 @@ function paintCfg(){
   const ti=cfgPanel.querySelector('#cfgTitle');ti.value=cfgData.title||'';
   cfgPanel.querySelector('#btnTitle').addEventListener('click',async()=>{
     cfgData.title=ti.value.trim()||'FLEET MONITOR';await saveCfg();});
+  // ENGINEERING: per-metric instrument cyclers (needle → led → scope)
+  const eng=cfgPanel.querySelector('#engBtns'),CYCLE=['needle','led','scope'];
+  ['cpu','net','ram','disk'].forEach(mk=>{
+    const b=el('button','cfg-btn eng',mk.toUpperCase()+':'+(engMeters[mk]||ENG_DEF[mk]).toUpperCase());
+    b.addEventListener('click',()=>{
+      const cur=engMeters[mk]||ENG_DEF[mk];
+      engMeters[mk]=CYCLE[(CYCLE.indexOf(cur)+1)%3];saveEng();
+      b.textContent=mk.toUpperCase()+':'+engMeters[mk].toUpperCase();
+      if(forceMode==='engineer')buildStrip();});
+    eng.appendChild(b);});
+  cfgPanel.querySelector('#btnDrill').addEventListener('click',()=>{
+    raTestUntil=Date.now()+8000;updateRedAlert();closeCfg();});
 }
 async function doProbe(){
   const host=cfgPanel.querySelector('#addHost').value.trim();
@@ -395,6 +506,10 @@ const _h=location.hash;
 if(_h.startsWith('#drill')){const id=_h.split('=')[1];
   const w=setInterval(()=>{if(built){clearInterval(w);openDrill(byId[id]||nodes[0]);}},120);}
 else if(_h==='#end'){const w=setInterval(()=>{if(built){clearInterval(w);content.scrollLeft=content.scrollWidth;}},120);}
-else if(_h==='#retro'){const w=setInterval(()=>{if(built){clearInterval(w);document.querySelector('[data-mode="retro"]').click();}},120);}
+else if(_h==='#retro'||_h==='#engineer'){const m=_h.slice(1);
+  const w=setInterval(()=>{if(built){clearInterval(w);document.querySelector('[data-mode="'+m+'"]').click();}},120);}
+else if(_h==='#redalert'){const w=setInterval(()=>{if(built){clearInterval(w);raTestUntil=Date.now()+30000;updateRedAlert();}},120);}
+else if(_h==='#wx'){const w=setInterval(()=>{if(built){clearInterval(w);
+  const c=content.querySelector('.wxcard');if(c)content.scrollLeft=Math.max(0,c.offsetLeft-content.clientWidth/2+c.offsetWidth/2);}},120);}
 else if(_h==='#config'){const w=setInterval(()=>{if(built){clearInterval(w);openCfg();}},120);}
 })();
