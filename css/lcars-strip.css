@@ -186,3 +186,11 @@ button{font-family:var(--font-pixel);color:inherit;background:none;border:none;c
 /* richer drill frame */
 .drill-panel{box-shadow:0 0 40px rgba(43,208,255,.45),inset 0 0 40px rgba(0,0,0,.5);}
 .dp-cell{background:linear-gradient(180deg,rgba(8,16,34,.5),rgba(0,0,0,.3));box-shadow:inset 0 1px 0 rgba(255,255,255,.05),inset 0 0 0 1px rgba(43,208,255,.12);}
+
+/* ---- drag-reorder (long-press) ---- */
+.content{touch-action:none;}
+.drill{touch-action:none;}
+.node.dragging,.dp-cell.dragging{pointer-events:none;z-index:30;opacity:.94;
+  transform:scale(1.05);transition:transform .09s ease;
+  box-shadow:0 0 26px rgba(43,208,255,.65),0 8px 18px rgba(0,0,0,.55);}
+.dp-cell.dragging{transform:scale(1.07);}

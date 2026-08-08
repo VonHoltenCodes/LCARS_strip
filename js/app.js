@@ -136,7 +136,7 @@ function buildFull(n){
     const s=el('div','svc'),d=el('span','led');d.dataset.svc=k;
     s.appendChild(d);s.appendChild(el('span','l',lab));row.appendChild(s);});
   col.appendChild(row);
-  col.addEventListener('click',()=>openDrill(n));return col;
+  return col;
 }
 function buildLite(n){
   const col=el('div','node lite'+(n.retro?' retro':''));col.dataset.id=n.id;col._node=n;
@@ -149,7 +149,7 @@ function buildLite(n){
   const face=el('div','face lite-face');const cv=el('canvas');face.appendChild(cv);body.appendChild(face);col._pingcv=cv;
   col.appendChild(body);
   col.appendChild(el('div','lite-foot','◇ '+(n.hw.AGENT||'agent-less')+' · PING'));
-  col.addEventListener('click',()=>openDrill(n));return col;
+  return col;
 }
 function buildStrip(){ content.innerHTML='';
   nodes.forEach(n=>content.appendChild(n.type==='lite'?buildLite(n):buildFull(n)));
@@ -249,18 +249,44 @@ function renderDrill(){const n=drillNode;
 function closeDrill(){drill.hidden=true;drillNode=null;}
 drill.addEventListener('click',e=>{if(e.target===drill)closeDrill();});
 
-/* ---- click-drag to pan (mouse), wheel scrolls horizontally; touch uses native pan ---- */
-(function(){let down=false,startX=0,startScroll=0,moved=0;
-  content.addEventListener('pointerdown',e=>{if(e.pointerType==='touch')return;
-    down=true;startX=e.clientX;startScroll=content.scrollLeft;moved=0;content.classList.add('grabbing');});
-  window.addEventListener('pointermove',e=>{if(!down)return;const dx=e.clientX-startX;
-    moved=Math.max(moved,Math.abs(dx));content.scrollLeft=startScroll-dx;});
-  window.addEventListener('pointerup',()=>{down=false;content.classList.remove('grabbing');});
-  content.addEventListener('click',e=>{if(moved>6){e.stopPropagation();e.preventDefault();}},true);
-  content.addEventListener('wheel',e=>{if(e.deltaY){content.scrollLeft+=e.deltaY;e.preventDefault();}},{passive:false});
-})();
+/* ---- unified gesture: tap→drill · horizontal drag→pan · long-press→drag-reorder ---- */
+function makeSortable(container,opts){
+  const {itemSel,pan,onTap,onReorder}=opts;
+  let startX=0,startY=0,startScroll=0,mode=null,holdT=null,dragging=null,downItem=null;
+  const clear=()=>{clearTimeout(holdT);if(dragging)dragging.classList.remove('dragging');
+    if(pan)container.classList.remove('grabbing');mode=null;dragging=null;downItem=null;};
+  container.addEventListener('pointerdown',e=>{
+    downItem=e.target.closest(itemSel);startX=e.clientX;startY=e.clientY;
+    startScroll=pan?container.scrollLeft:0;mode=null;
+    if(downItem)holdT=setTimeout(()=>{mode='reorder';dragging=downItem;
+      downItem.classList.add('dragging');if(navigator.vibrate)navigator.vibrate(15);},420);});
+  window.addEventListener('pointermove',e=>{
+    if(!downItem&&mode!=='pan')return;
+    const dx=e.clientX-startX,dy=e.clientY-startY;
+    if(mode==='reorder'&&dragging){
+      const over=document.elementFromPoint(e.clientX,e.clientY),tgt=over&&over.closest(itemSel);
+      if(tgt&&tgt!==dragging&&tgt.parentNode===dragging.parentNode){
+        const r=tgt.getBoundingClientRect();
+        tgt.parentNode.insertBefore(dragging,(e.clientX>r.left+r.width/2)?tgt.nextSibling:tgt);}
+      e.preventDefault();return;}
+    if(mode===null&&(Math.abs(dx)>10||Math.abs(dy)>10)){clearTimeout(holdT);
+      mode=pan?'pan':'x';if(pan)container.classList.add('grabbing');}
+    if(mode==='pan'){container.scrollLeft=startScroll-dx;e.preventDefault();}},{passive:false});
+  window.addEventListener('pointerup',e=>{
+    if(mode==='reorder'&&onReorder)onReorder();
+    else if(mode===null&&downItem&&onTap&&Math.abs(e.clientX-startX)<8&&Math.abs(e.clientY-startY)<8)onTap(downItem);
+    clear();});
+  if(pan)container.addEventListener('wheel',e=>{if(e.deltaY){container.scrollLeft+=e.deltaY;e.preventDefault();}},{passive:false});
+}
+function saveNodeOrder(){const ids=[...content.querySelectorAll('.node')].map(n=>n.dataset.id);
+  try{localStorage.setItem('lcars.nodeOrder',JSON.stringify(ids));}catch(_){}
+  nodes.sort((a,b)=>ids.indexOf(a.id)-ids.indexOf(b.id));}
+function applySavedOrder(){try{const ids=JSON.parse(localStorage.getItem('lcars.nodeOrder')||'[]');
+  if(ids.length)nodes.sort((a,b)=>(ids.indexOf(a.id)+1||999)-(ids.indexOf(b.id)+1||999));}catch(_){}}
+makeSortable(content,{itemSel:'.node',pan:true,onTap:it=>openDrill(it._node),onReorder:saveNodeOrder});
+makeSortable(drillPanel,{itemSel:'.dp-cell',pan:false}); // reorder cells inside a drill
 
-buildStrip();requestAnimationFrame(render);
+applySavedOrder();buildStrip();requestAnimationFrame(render);
 const _h=location.hash; // test hooks
 if(_h.startsWith('#drill')){const id=_h.split('=')[1];
   setTimeout(()=>openDrill(id?nodes.find(n=>n.id===id)||nodes[1]:nodes[1]),300);}
