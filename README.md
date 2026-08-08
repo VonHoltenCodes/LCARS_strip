@@ -61,13 +61,25 @@ sudo ./install.sh
 
 Open `http://<panel-host>:8899/`, hit **⚙ NODES**, and start adding IPs.
 
-Each monitored machine needs its one agent — per-OS guides and scripts are in
-[`nodes/`](nodes/README.md):
+## Making your machines visible
 
-- **Linux**: one Netdata kickstart command
-- **Windows 10/11**: one PowerShell script (`nodes/windows/`)
-- **Windows XP**: enable the built-in SNMP service (`nodes/xp/README.md` —
-  including the `i386` files gotcha)
+The panel can only show what your machines report. The rule is simple —
+**every monitored node needs one agent and one open port**, reachable from
+the panel host. Each OS is a few minutes, once per machine:
+
+| Your machine runs | What you do | Agent · port | Guide |
+|---|---|---|---|
+| **Linux** (any distro) | paste one Netdata kickstart command | Netdata · `:19999` | [`nodes/linux/README.md`](nodes/linux/README.md) |
+| **Windows 10 / 11** | run one PowerShell script (elevated) | windows_exporter · `:9182` | [`nodes/windows/install-windows-exporter.ps1`](nodes/windows/install-windows-exporter.ps1) |
+| ↳ *with an NVIDIA GPU* | run a second script for the GPU dial | nvidia_gpu_exporter · `:9835` | [`nodes/windows/install-nvidia-gpu-exporter.ps1`](nodes/windows/install-nvidia-gpu-exporter.ps1) |
+| **Windows XP / retro** | enable the built-in SNMP service | SNMP · `161/udp` | [`nodes/xp/README.md`](nodes/xp/README.md) — incl. the `i386` files gotcha |
+
+Then back on the panel: **⚙ NODES → type the IP → SCAN** — the node type,
+GPU and basic specs are auto-detected. Each guide also shows how to scope
+the agent's firewall rule to the panel host only (recommended — the whole
+LAN doesn't need to reach your exporters).
+
+Overview of the whole scheme: [`nodes/README.md`](nodes/README.md).
 
 ## Kiosk mode (the 1U touchscreen)
 
