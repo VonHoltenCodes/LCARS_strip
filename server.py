@@ -56,7 +56,8 @@ def norm_config(c):
     nodes = [norm_node(n) for n in c.get("nodes", [])]
     ids = [n["id"] for n in nodes]
     if len(ids) != len(set(ids)): raise ValueError("duplicate node ids")
-    return {"port": int(c.get("port", 8899)),
+    return {"title": str(c.get("title") or "FLEET MONITOR")[:40],
+            "port": int(c.get("port", 8899)),
             "poll_seconds": max(1, int(c.get("poll_seconds", 2))),
             "nodes": nodes}
 
@@ -289,7 +290,7 @@ def poller():
 
 def fleet():
     with _cfg_lock:
-        nodes = list(_cfg["nodes"])
+        nodes = list(_cfg["nodes"]); title = _cfg.get("title", "FLEET MONITOR")
     with _snap_lock:
         snap = dict(_snapshot)
     out = []
@@ -298,7 +299,7 @@ def fleet():
         out.append({"id": n["id"], "name": n["name"], "host": n["host"],
                     "type": n["type"], "use": n["use"], "hero": n["hero"],
                     "retro": n["retro"], "gpu": n["gpu"], "hw": n["hw"], **m})
-    return {"nodes": out}
+    return {"title": title, "nodes": out}
 
 # ---------------------------------------------------------------- probe
 def probe(host):

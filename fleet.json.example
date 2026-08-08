@@ -1,4 +1,5 @@
 {
+  "title": "MY LAB FLEET MONITOR",
   "port": 8899,
   "poll_seconds": 2,
   "nodes": [
@@ -6,9 +7,13 @@
       "name": "MY-SERVER",
       "host": "192.168.1.10",
       "type": "linux",
-      "use": "WEB · FILES",
+      "use": "WEB \u00b7 FILES",
       "hero": true,
-      "hw": { "CPU": "Ryzen 5 5600G", "RAM": "32 GB", "OS": "Debian 12" }
+      "hw": {
+        "CPU": "Ryzen 5 5600G",
+        "RAM": "32 GB",
+        "OS": "Debian 12"
+      }
     },
     {
       "name": "GAMING-RIG",
@@ -16,7 +21,11 @@
       "type": "windows",
       "use": "GAMES",
       "gpu": true,
-      "hw": { "GPU": "RTX 4070", "OS": "Windows 11", "AGENT": "windows_exporter" }
+      "hw": {
+        "GPU": "RTX 4070",
+        "OS": "Windows 11",
+        "AGENT": "windows_exporter"
+      }
     },
     {
       "name": "RETRO-BOX",
@@ -25,7 +34,11 @@
       "community": "public",
       "use": "WINDOWS XP",
       "retro": true,
-      "hw": { "CPU": "Pentium 4", "OS": "Windows XP", "AGENT": "SNMP + ping" }
+      "hw": {
+        "CPU": "Pentium 4",
+        "OS": "Windows XP",
+        "AGENT": "SNMP + ping"
+      }
     }
   ]
 }

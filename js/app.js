@@ -37,6 +37,8 @@ function perfNow(){ return (typeof performance!=='undefined'?performance.now():0
 async function pollFleet(){
   try{
     const r=await fetch('/api/fleet',{cache:'no-store'}); const d=await r.json();
+    if(d.title){const tl=$('.tb-label');
+      if(tl&&tl.textContent!==d.title){tl.textContent=d.title;document.title='LCARS_strip // '+d.title;}}
     const list=d.nodes||[];
     const key=list.map(x=>x.id).join(',');
     if(key!==memberKey){                       // membership changed: reset model
@@ -243,6 +245,11 @@ function paintCfg(){
      <div class="dp-sub">fleet configuration</div>
      <div class="dp-sub" id="cfgMsg" class="cfg-msg"></div></div>
    <div class="cfg-body">
+     <div class="cfg-row cfg-title-row">
+       <span class="mlab">PANEL TITLE</span>
+       <input id="cfgTitle" class="cfg-in" maxlength="40" autocomplete="off">
+       <button class="cfg-btn" id="btnTitle">SET</button>
+     </div>
      <div class="cfg-list" id="cfgList"></div>
      <div class="cfg-add">
        <div class="mlab">ADD NODE</div>
@@ -273,6 +280,9 @@ function paintCfg(){
   cfgPanel.querySelector('#cfgX').addEventListener('click',e=>{e.stopPropagation();closeCfg();});
   cfgPanel.querySelector('#btnScan').addEventListener('click',doProbe);
   cfgPanel.querySelector('#btnAdd').addEventListener('click',doAdd);
+  const ti=cfgPanel.querySelector('#cfgTitle');ti.value=cfgData.title||'';
+  cfgPanel.querySelector('#btnTitle').addEventListener('click',async()=>{
+    cfgData.title=ti.value.trim()||'FLEET MONITOR';await saveCfg();});
 }
 async function doProbe(){
   const host=cfgPanel.querySelector('#addHost').value.trim();

@@ -80,6 +80,8 @@ A ready-made systemd user service for boot-to-panel is in `kiosk/` (optional).
 ## Config
 
 `/etc/lcars-strip/fleet.json` — see [`fleet.json.example`](fleet.json.example).
+Top-level: `title` (the header banner text — name your fleet; also editable
+live from the ⚙ NODES console), `port`, `poll_seconds`.
 Per node: `name`, `host`, `type` (`linux` | `windows` | `xp-snmp`), optional
 `use` (role caption), `gpu`, `retro` (CRT styling), `hero` (accent card),
 `community` (SNMP), `hw` (spec table shown in the drill-down).

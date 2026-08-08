@@ -241,3 +241,6 @@ button{font-family:var(--font-pixel);color:inherit;background:none;border:none;c
 .cfg-msg.err{color:var(--red);}
 
 .cfg-body{padding-top:30px;}
+
+.cfg-title-row{align-items:center;border-bottom:1px solid rgba(255,153,0,.35);padding-bottom:6px;}
+.cfg-title-row .mlab{white-space:nowrap;}
