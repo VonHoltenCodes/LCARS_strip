@@ -35,7 +35,8 @@ node's agent port, it's on the strip.
 - **⚙ NODES console** — add a machine by typing its IP and hitting **SCAN**:
   the panel auto-detects Linux / Windows / SNMP and fills in the rest.
   Or hand-edit `/etc/lcars-strip/fleet.json` — same thing.
-- **Retro nodes get the retro treatment** — phosphor-green CRT faces for the
+- **Retro nodes get the retro treatment** — phosphor **oscilloscope faces**:
+  live waveform traces whose amplitude and sweep speed follow the load, for the
   XP-era hardware
 - Offline nodes dim out and flag the ticker; the panel self-recovers when
   they return
