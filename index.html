@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1424, initial-scale=1">
+<title>LCARS_strip // Fleet Monitor</title>
+<link rel="stylesheet" href="css/crt.css">
+<link rel="stylesheet" href="css/lcars-strip.css">
+</head>
+<body>
+<!-- reused NeonPulse CRT layers -->
+<div class="crt-background"></div>
+<div class="grid-overlay"></div>
+
+<div class="scaler">
+<div class="strip" id="strip">
+
+  <!-- LCARS elbow sidebar -->
+  <aside class="sidebar">
+    <div class="elbow"></div>
+    <div class="side-title">LCARS<span>//STRIP</span></div>
+    <div class="mode-pills">
+      <button class="pill" data-mode="mix" data-on>MIX</button>
+      <button class="pill" data-mode="needle">NEEDLE</button>
+      <button class="pill" data-mode="led">LED</button>
+      <button class="pill" data-mode="retro">RETRO</button>
+    </div>
+    <div class="side-block b-amber"></div>
+    <div class="side-block b-cyan"></div>
+    <div class="side-foot">FLEET<br>MON</div>
+  </aside>
+
+  <!-- top status bar -->
+  <header class="topbar">
+    <span class="tb-seg s1"></span>
+    <span class="tb-label">STARBASE FLEET MONITOR</span>
+    <span class="tb-seg s2"></span>
+    <span class="lcd" id="clock">00:00:00</span>
+    <span class="tb-up">UP <b id="upt">00d 00:00</b></span>
+    <span class="tb-seg s3"></span>
+  </header>
+
+  <!-- node columns -->
+  <main class="content" id="content"></main>
+
+  <!-- alerts ticker -->
+  <footer class="ticker"><div class="ticker-run" id="ticker"></div></footer>
+
+  <!-- drill-down overlay -->
+  <div class="drill" id="drill" hidden>
+    <div class="drill-panel" id="drillPanel"></div>
+  </div>
+
+</div>
+</div>
+<script src="js/app.js"></script>
+</body>
+</html>

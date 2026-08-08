@@ -1,0 +1,201 @@
+/* CRT Effect Styles */
+:root {
+    --primary-color: #00ff41; /* Neon green */
+    --secondary-color: #ff00ff; /* Magenta */
+    --background-color: #0c0c0c;
+    --text-color: #ffffff;
+    --dark-accent: #1a1a1a;
+    --light-accent: #3d3d3d;
+    --crt-overlay: rgba(18, 16, 16, 0.1);
+    --crt-lines: rgba(255, 255, 255, 0.03);
+}
+
+/* CRT Background Effect */
+.crt-background {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -2;
+    background-color: var(--background-color);
+    overflow: hidden;
+    pointer-events: none;
+}
+
+/* Grid Overlay */
+.grid-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: 
+        linear-gradient(rgba(0, 255, 65, 0.2) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 255, 65, 0.2) 1px, transparent 1px);
+    background-size: 40px 40px;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0.15;
+}
+
+/* CRT Scan Lines with Animation */
+.crt-scanlines {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+        to bottom,
+        rgba(0, 255, 65, 0) 0%,
+        rgba(0, 255, 65, 0.1) 50%,
+        rgba(0, 255, 65, 0) 100%
+    );
+    background-size: 100% 8px;
+    z-index: 999;
+    pointer-events: none;
+    opacity: 0.3;
+    animation: scanline-motion 8s linear infinite;
+}
+
+/* Scanline Animation */
+@keyframes scanline-motion {
+    0% {
+        background-position: 0 0;
+    }
+    100% {
+        background-position: 0 100%;
+    }
+}
+
+/* Single Scanline Sweep Effect */
+.crt-scanline-sweep {
+    position: fixed;
+    top: -100%;
+    left: 0;
+    width: 100%;
+    height: 10px;
+    background: linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, 0) 0%,
+        rgba(0, 255, 65, 0.5) 50%,
+        rgba(0, 0, 0, 0) 100%
+    );
+    z-index: 998;
+    pointer-events: none;
+    opacity: 0.2;
+    animation: sweep 6s linear infinite;
+}
+
+@keyframes sweep {
+    0% {
+        top: -5%;
+    }
+    75% {
+        top: 105%;
+    }
+    100% {
+        top: 105%;
+    }
+}
+
+/* CRT Flicker Animation - REMOVED FROM FULL PAGE */
+.crt-flicker {
+    display: none; /* Disabled to prevent full-page flashing */
+}
+
+@keyframes flicker {
+    0% { opacity: 0.05; }
+    25% { opacity: 0.025; }
+    50% { opacity: 0.05; }
+    75% { opacity: 0.075; }
+    100% { opacity: 0.05; }
+}
+
+/* CRT Screen Curve Effect */
+.crt-curve {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: 
+        radial-gradient(
+            circle at center,
+            transparent 50%,
+            rgba(0, 0, 0, 0.4) 150%
+        );
+    z-index: 997;
+    pointer-events: none;
+    opacity: 0.8;
+}
+
+/* Neon Text Effect - No Glow */
+.neon-text {
+    color: var(--primary-color);
+}
+
+/* Magenta Neon Text - No Glow */
+.neon-text-alt {
+    color: var(--secondary-color);
+}
+
+/* Animated Neon Border */
+.neon-border {
+    position: relative;
+    border: 2px solid var(--primary-color);
+    box-shadow: 
+        0 0 5px var(--primary-color),
+        0 0 10px var(--primary-color);
+    animation: neon-pulse 2s infinite alternate;
+}
+
+@keyframes neon-pulse {
+    from {
+        box-shadow: 
+            0 0 5px var(--primary-color),
+            0 0 10px var(--primary-color);
+    }
+    to {
+        box-shadow: 
+            0 0 5px var(--primary-color),
+            0 0 10px var(--primary-color),
+            0 0 15px var(--primary-color);
+    }
+}
+
+/* Hydraulic Pipes Background (from reference) */
+.hydraulic-background {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+    opacity: 0.15;
+    pointer-events: none;
+}
+
+.pipe {
+    position: absolute;
+    background-color: #555555;
+    border: 1px solid #777777;
+}
+
+.pipe-horizontal {
+    height: 10px;
+}
+
+.pipe-vertical {
+    width: 10px;
+}
+
+.connector {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    background-color: #666666;
+    border: 2px solid #888888;
+    border-radius: 50%;
+}
