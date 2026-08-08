@@ -194,3 +194,18 @@ button{font-family:var(--font-pixel);color:inherit;background:none;border:none;c
   transform:scale(1.05);transition:transform .09s ease;
   box-shadow:0 0 26px rgba(43,208,255,.65),0 8px 18px rgba(0,0,0,.55);}
 .dp-cell.dragging{transform:scale(1.07);}
+
+/* ---- live-data additions ---- */
+.netstat{font:700 11px/1 "Pixelify Sans",monospace;letter-spacing:.06em;
+  padding:2px 8px;border-radius:9px;margin-left:8px;white-space:nowrap;
+  border:1px solid rgba(255,255,255,.15);}
+.netstat[data-s="ok"]{color:#04140a;background:var(--grn);box-shadow:0 0 9px var(--grn);}
+.netstat[data-s="down"]{color:#1a0000;background:var(--red);box-shadow:0 0 9px var(--red);}
+/* offline node — dim + desaturate, keep it readable */
+.node.offline{opacity:.42;filter:grayscale(.72);}
+.node.offline .node-name{color:var(--red);}
+/* first-paint: hide until the first poll builds real cards */
+.strip.booting .content::after{content:"◉ LINKING TO NETDATA…";
+  position:absolute;left:50%;top:58%;transform:translate(-50%,-50%);
+  font:700 13px "Pixelify Sans",monospace;color:var(--cyan);
+  text-shadow:0 0 10px var(--cyan);letter-spacing:.12em;}

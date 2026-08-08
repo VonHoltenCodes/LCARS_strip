@@ -1,5 +1,7 @@
-/* LCARS_strip mockup — fake-data engine + meter rendering + touch drill-down.
-   Real build will replace the fake data with Netdata API polls. */
+/* LCARS_strip — LIVE fleet monitor.
+   Polls /api/fleet (Netdata-backed backend) and drives the meters from real
+   metrics. Meter rendering + touch gestures + drill-down are unchanged from the
+   mockup; only the data engine is now real. */
 (() => {
 'use strict';
 const $ = s => document.querySelector(s);
@@ -11,63 +13,63 @@ function fit(){ const s=Math.min((innerWidth-6)/1424,(innerHeight-6)/280);
   strip.style.transform=`scale(${s})`; strip.style.transformOrigin='center'; }
 addEventListener('resize',fit); fit();
 
-const rnd=(a,b)=>a+Math.random()*(b-a);
-function mkNode(c){return Object.assign({
-  type:'full',retro:false,hero:false,
-  m:{cpu:rnd(5,40),net:rnd(5,30),ram:rnd(30,60),disk:rnd(10,50),temp:rnd(38,52)},
-  t:{cpu:0,net:0,ram:0,disk:0,temp:0},
-  svc:{plex:'up',pm2:'up',pg:'up',net:'up'},
-  traffic:rnd(20,120),cap:512,up:rnd(1,40)*86400+rnd(0,80000),
-  ping:rnd(2,16),reachable:true,pingHist:Array.from({length:40},()=>rnd(2,16)),
-},c);}
-// Specs from BatCave TechStack.txt (working doc — VERIFY on go-live; IPs/RAM/drives drift)
-const nodes=[
-  mkNode({id:'starbase1',name:'STARBASE1',role:'child',use:'MEDIA · PLEX · DNS',
-    hw:{CPU:'Xeon E5-1620 v2 · 4c/8t',RAM:'128 GB ECC',GPU:'ASPEED BMC',STORAGE:'10TB+1TB RAID · 640GB OS',OS:'Zentyal 8 · U22.04'}}),
-  mkNode({id:'starbase2',name:'STARBASE2',role:'PARENT',use:'WEB · DB · MONITOR',hero:true,
-    hw:{CPU:'Core i5-7500T · 4c/4t',RAM:'16 GB DDR4',GPU:'Intel HD 630',STORAGE:'238 GB SSD',OS:'Ubuntu 26.04'}}),
-  mkNode({id:'pop-os',name:'CYBERTOWER',role:'child',use:'DEV WORKSTATION',retro:true,
-    hw:{CPU:'Core i7-6700 · 4c/8t',RAM:'16 GB DDR4-3600',GPU:'RTX 4060 Ti',STORAGE:'Crucial P310 1TB',OS:'Pop!_OS Cosmic'}}),
-  mkNode({id:'skytech',name:'SKYTECH',role:'child',use:'RACING SIM',
-    hw:{CPU:'Core i9-10900F · 10c/20t',RAM:'128 GB DDR4',GPU:'RTX 5070 Ti 16G',STORAGE:'WD SN570 1TB',OS:'Windows 11 Pro',AGENT:'windows_exporter'}}),
-  mkNode({id:'vonholten308',name:'VONHOLTEN308',role:'child',use:'STARSHIP · MOBILE',
-    hw:{CPU:'Core i7-13650HX · 14c/20t',RAM:'32 GB',GPU:'RTX 4060 8G',STORAGE:'WD SN850X 2TB',OS:'Windows 11 Pro',AGENT:'windows_exporter'}}),
-  mkNode({id:'kidsdesk',name:'KIDS DESK',role:'child',use:'FAMILY PC',
-    hw:{CPU:'—',RAM:'—',GPU:'—',STORAGE:'—',OS:'Linux (verify)'}}),
-  mkNode({id:'labstudio',name:'LAB STUDIO',role:'child',use:'PLEX RECEIVER',
-    hw:{CPU:'Core i7-3770K · 4c/8t',RAM:'32 GB DDR3',GPU:'GTX 1080 Ti 11G',STORAGE:'WD Blue 500GB SSD',OS:'Pop!_OS · 192.168.68.111'}}),
-  mkNode({id:'retrobeast-v2',name:'RETROBEAST-V2',role:'lite',use:'WINDOWS XP',type:'lite',retro:true,
-    hw:{CPU:'Athlon XP 3200+ · 2.2GHz',RAM:'3 GB DDR-333',GPU:'Radeon HD 3850 AGP',STORAGE:'WD Blue 500GB SSD',OS:'Windows XP',AGENT:'SNMP + ping'}}),
-];
+/* ---- static hardware specs (drill-down only; live values come from the API) ---- */
+/* Specs from BatCave TechStack.txt (working doc — VERIFY on go-live; IPs/RAM/drives drift) */
+const HW={
+  starbase1:{CPU:'Xeon E5-1620 v2 · 4c/8t',RAM:'128 GB ECC',GPU:'ASPEED BMC',STORAGE:'10TB+1TB RAID · 640GB OS',OS:'Zentyal 8 · U22.04'},
+  starbase2:{CPU:'Core i5-7500T · 4c/4t',RAM:'16 GB DDR4',GPU:'Intel HD 630',STORAGE:'238 GB SSD',OS:'Ubuntu 26.04'},
+  cybertower:{CPU:'Core i7-6700 · 4c/8t',RAM:'16 GB DDR4-3600',GPU:'RTX 4060 Ti',STORAGE:'Crucial P310 1TB',OS:'Pop!_OS Cosmic',IP:'192.168.68.72'},
+  skytech:{CPU:'Core i9-10900F · 10c/20t',RAM:'128 GB DDR4',GPU:'RTX 5070 Ti 16G',STORAGE:'WD SN570 1TB',OS:'Windows 11 Pro',AGENT:'windows_exporter'},
+  vonholten308:{CPU:'Core i7-13650HX · 14c/20t',RAM:'32 GB',GPU:'RTX 4060 8G',STORAGE:'WD SN850X 2TB',OS:'Windows 11 Pro · .70',AGENT:'windows_exporter'},
+  kidsdesk:{CPU:'(verify)',RAM:'(verify)',GPU:'—',STORAGE:'(verify)',OS:'Linux · Netdata child'},
+  gigalab:{CPU:'(verify)',RAM:'(verify)',GPU:'(verify)',STORAGE:'(verify)',OS:'Linux · Netdata child'},
+  labstudio:{CPU:'Core i7-3770K · 4c/8t',RAM:'32 GB DDR3',GPU:'GTX 1080 Ti 11G',STORAGE:'WD Blue 500GB SSD',OS:'Pop!_OS · 192.168.68.111'},
+  retrobeast:{CPU:'Athlon XP 3200+ · 2.2GHz',RAM:'3 GB DDR-333',GPU:'Radeon HD 3850 AGP',STORAGE:'WD Blue 500GB SSD',OS:'Windows XP',AGENT:'SNMP + ping · .100'},
+};
+
+/* ---- live data model ---- */
+const nodes=[]; const byId={}; let built=false;
+function upsert(a){
+  let n=byId[a.id];
+  if(!n){ n={id:a.id,name:a.name,use:a.use||'',role:a.role||'child',type:a.type,
+      hero:!!a.hero,retro:!!a.retro,hasGpu:a.gpu===true,hw:HW[a.id]||{},
+      m:{cpu:0,net:0,ram:0,disk:0,gpu:0},t:{cpu:0,net:0,ram:0,disk:0,gpu:0},
+      online:true,up:0,upAt:0,latency:null,gputemp:null,pingHist:Array.from({length:40},()=>0)};
+    byId[a.id]=n; nodes.push(n); }
+  ['cpu','net','ram','disk'].forEach(k=>{ if(typeof a[k]==='number') n.t[k]=a[k]; });
+  if(typeof a.gpuutil==='number') n.t.gpu=a.gpuutil;
+  n.online=a.online!==false;
+  if(typeof a.uptime==='number'){ n.up=a.uptime; n.upAt=perfNow(); }
+  if(typeof a.gputemp==='number') n.gputemp=a.gputemp;
+  if(typeof a.latency==='number'){ n.latency=a.latency;
+    n.pingHist.push(n.online?a.latency:0); n.pingHist.shift(); }
+  else if(n.type==='snmp'){ n.pingHist.push(n.online?(n.latency||1):0); n.pingHist.shift(); }
+  return n;
+}
+let _t0=null; function perfNow(){ return (typeof performance!=='undefined'?performance.now():0)/1000; }
+async function pollFleet(){
+  try{
+    const r=await fetch('/api/fleet',{cache:'no-store'}); const d=await r.json();
+    (d.nodes||[]).forEach(upsert);
+    if(!built && nodes.length){ applySavedOrder(); buildStrip(); built=true; $('#strip').classList.remove('booting'); }
+    net('ok');
+  }catch(e){ net('down'); }
+}
+function net(s){ const b=$('#netstat'); if(b){ b.dataset.s=s; b.textContent = s==='ok'?'◉ LIVE':'◌ RETRY'; } }
+setInterval(pollFleet,2000); pollFleet();
+
 let forceMode='mix';
 /* meter type per metric: mix = CPU/NET needles, RAM/DISK LED bars */
 function meterType(mk){ if(forceMode==='needle'||forceMode==='retro')return'needle';
   if(forceMode==='led')return'led'; return (mk==='cpu'||mk==='net')?'needle':'led'; }
 function isRetro(n){ return forceMode==='retro' || (forceMode==='mix' && n.retro); }
 
-function retarget(){ nodes.forEach(n=>{
-  if(n.type==='lite'){
-    if(Math.random()<0.025)n.reachable=!n.reachable;
-    n.ping=Math.min(80,Math.max(1,n.ping+rnd(-4,5)));
-    n.pingHist.push(n.reachable?n.ping:0);n.pingHist.shift();return;
-  }
-  n.t.cpu=Math.min(100,Math.max(2,n.m.cpu+rnd(-25,28)));
-  n.t.net=Math.random()<0.25?rnd(60,98):Math.min(100,Math.max(2,n.m.net+rnd(-30,30)));
-  n.t.ram=Math.min(95,Math.max(20,n.m.ram+rnd(-6,6)));
-  n.t.disk=Math.min(96,Math.max(8,n.m.disk+rnd(-1.5,1.6)));
-  n.t.temp=Math.min(78,Math.max(34,n.m.temp+rnd(-3,3)));
-  n.traffic=Math.min(n.cap,n.traffic+n.m.net/100*rnd(.2,1.4));
-  if(n.traffic>=n.cap)n.traffic=rnd(5,20);
-  const k=['plex','pm2','pg','net'][Math.floor(rnd(0,4))];
-  n.svc[k]=Math.random()<0.05?'warn':'up';
-}); }
-setInterval(retarget,900);
-
 /* canvas sized ONCE via offsetWidth (unaffected by the CSS scale transform) */
 function setupCanvas(cv){const d=devicePixelRatio||1,w=cv.offsetWidth,h=cv.offsetHeight;
   if(!w||!h)return false;cv.width=w*d;cv.height=h*d;const x=cv.getContext('2d');
   x.setTransform(d,0,0,d,0,0);cv._ctx=x;cv._w=w;cv._h=h;return true;}
 const zoneColor=v=>v<70?'#2bff66':v<88?'#ffd11a':'#ff3b2e';
+const zoneState=v=>v<70?'up':v<88?'warn':'down';
 
 function drawNeedle(cv,v,retro){
   if(!cv._ctx||cv._w!==cv.offsetWidth||cv._h!==cv.offsetHeight){if(!setupCanvas(cv))return;}
@@ -88,7 +90,7 @@ function drawNeedle(cv,v,retro){
     x.beginPath();x.moveTo(cx+c*(R-R*0.20),cy+s*(R-R*0.20));x.lineTo(cx+c*(R-2),cy+s*(R-2));x.stroke();
     if(i%2===0)x.fillText(String(t*100),cx+c*(R-R*0.36),cy+s*(R-R*0.36));}
   // traditional needle — solid, NO glow
-  const a=a0+(a1-a0)*(v/100);
+  const a=a0+(a1-a0)*(Math.max(0,Math.min(100,v))/100);
   x.shadowBlur=0;x.strokeStyle='#eef1f5';x.lineWidth=2;x.lineCap='round';
   x.beginPath();x.moveTo(cx-Math.cos(a)*R*0.14,cy-Math.sin(a)*R*0.14);
   x.lineTo(cx+Math.cos(a)*(R-3),cy+Math.sin(a)*(R-3));x.stroke();
@@ -108,7 +110,7 @@ function drawPing(cv,hist,ok){
   for(let i=0;i<n;i++){const p=hist[i],v=Math.min(1,p/45),bh=Math.max(1,v*h*0.92);
     x.fillStyle=!ok?'#4a3a1a':p>28?'#ff3b2e':p>13?'#ffd11a':'#2bff66';
     x.fillRect(i*bw,h-bh,Math.max(1,bw-1),bh);}}
-function drawLedbar(host,v){const segs=host._segs,on=Math.round(v/100*LN);
+function drawLedbar(host,v){const segs=host._segs,on=Math.round(Math.max(0,Math.min(100,v))/100*LN);
   host._peak=Math.max(on,host._peak-0.2);const pk=Math.round(host._peak);
   segs.forEach((s,i)=>{const idx=i+1,z=idx>LN*0.88?'r':idx>LN*0.7?'a':'g';
     s.className='seg'+(idx<=on?' on '+z:'')+(idx===pk&&idx>on?' on '+z+' peak':'');});}
@@ -119,7 +121,7 @@ function nodeHead(n,roleTxt){const head=el('div','node-head'),hl=el('div','nh-le
   head.appendChild(hl);head.appendChild(el('span','node-role',roleTxt||n.role));return head;}
 function buildFull(n){
   const retro=isRetro(n);
-  const col=el('div','node'+(n.hero?' hero':''));col.dataset.id=n.id;col._node=n;col._g={};
+  const col=el('div','node'+(n.hero?' hero':'')+(n.retro?' retrocard':''));col.dataset.id=n.id;col._node=n;col._g={};
   col.appendChild(nodeHead(n));
   const meters=el('div','meters');
   ['cpu','net','ram','disk'].forEach(mk=>{
@@ -128,63 +130,56 @@ function buildFull(n){
     else{const cv=el('canvas');face.appendChild(cv);g._cv=cv;g._retro=retro;}
     g.appendChild(face);g.appendChild(el('div','mlab',mk.toUpperCase()));
     meters.appendChild(g);col._g[mk]=g;});
-  const tank=el('div','tank');tank.appendChild(el('div','tcap','24H'));
-  const fill=el('div','fill');tank.appendChild(fill);meters.appendChild(tank);col._tank=fill;
+  // adaptive tank: GPU util for GPU nodes, otherwise live NET load
+  const tankMk=n.hasGpu?'gpu':'net';
+  const tank=el('div','tank');tank.appendChild(el('div','tcap',n.hasGpu?'GPU':'NET'));
+  const fill=el('div','fill');tank.appendChild(fill);meters.appendChild(tank);
+  col._tank=fill;col._tankMk=tankMk;
   col.appendChild(meters);
+  // health LED row — real signals: LINK (online) + CPU/RAM/DISK zone lights
   const row=el('div','ledrow');
-  [['PLEX','plex'],['PM2','pm2'],['PG','pg'],['NET','net']].forEach(([lab,k])=>{
-    const s=el('div','svc'),d=el('span','led');d.dataset.svc=k;
+  [['LINK','link'],['CPU','cpu'],['RAM','ram'],['DISK','disk']].forEach(([lab,k])=>{
+    const s=el('div','svc'),d=el('span','led');d.dataset.k=k;
     s.appendChild(d);s.appendChild(el('span','l',lab));row.appendChild(s);});
   col.appendChild(row);
   return col;
 }
-function buildLite(n){
-  const col=el('div','node lite'+(n.retro?' retro':''));col.dataset.id=n.id;col._node=n;
-  col.appendChild(nodeHead(n,'lite'));
-  const body=el('div','lite-body');
-  const stat=el('div','lite-stat');const led=el('span','lite-led');stat.appendChild(led);col._led=led;
-  const tx=el('div','lite-tx');const state=el('div','lite-state','—');const lat=el('div','lite-lat lcd','--');
-  tx.appendChild(state);tx.appendChild(lat);stat.appendChild(tx);col._state=state;col._lat=lat;
-  body.appendChild(stat);
-  const face=el('div','face lite-face');const cv=el('canvas');face.appendChild(cv);body.appendChild(face);col._pingcv=cv;
-  col.appendChild(body);
-  col.appendChild(el('div','lite-foot','◇ '+(n.hw.AGENT||'agent-less')+' · PING'));
-  return col;
-}
 function buildStrip(){ content.innerHTML='';
-  nodes.forEach(n=>content.appendChild(n.type==='lite'?buildLite(n):buildFull(n)));
-}
-function renderLite(col,n){
-  col._led.dataset.s=n.reachable?'up':'down';
-  col._state.textContent=n.reachable?'ONLINE':'OFFLINE';
-  col._state.className='lite-state '+(n.reachable?'on':'off');
-  col._lat.innerHTML=n.reachable?Math.round(n.ping)+'<span class="u">MS</span>':'<span class="u">—</span>';
-  drawPing(col._pingcv,n.pingHist,n.reachable);
+  nodes.forEach(n=>content.appendChild(buildFull(n)));
 }
 function render(){
-  document.querySelectorAll('.node').forEach(col=>{const n=col._node;
-    if(n.type==='lite'){renderLite(col,n);return;}
-    ['cpu','net','ram','disk','temp'].forEach(k=>{n.m[k]+=(n.t[k]-n.m[k])*0.11;});
-    col.querySelectorAll('.svc .led').forEach(d=>d.dataset.s=n.svc[d.dataset.svc]);
+  document.querySelectorAll('.node').forEach(col=>{const n=col._node; if(!n)return;
+    col.classList.toggle('offline',!n.online);
+    ['cpu','net','ram','disk','gpu'].forEach(k=>{
+      const tgt=n.online?n.t[k]:0; n.m[k]+=(tgt-n.m[k])*0.11;});
+    // health LEDs
+    col.querySelectorAll('.svc .led').forEach(d=>{const k=d.dataset.k;
+      d.dataset.s = k==='link' ? (n.online?'up':'down') : (n.online?zoneState(n.m[k]):'down');});
     for(const mk in col._g){const g=col._g[mk],v=n.m[mk];
       if(g._bar)drawLedbar(g._bar,v);else drawNeedle(g._cv,v,g._retro);}
-    col._tank.style.height=(n.traffic/n.cap*100).toFixed(1)+'%';
+    col._tank.style.height=Math.max(0,Math.min(100,n.m[col._tankMk])).toFixed(1)+'%';
   });
   if(drillNode)renderDrill();
   requestAnimationFrame(render);
 }
-function fmtUp(s){const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
+function fmtUp(s){s=Math.max(0,s|0);const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
   return String(d).padStart(2,'0')+'d '+String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');}
+function liveUp(n){ return n.up + (n.upAt?(perfNow()-n.upAt):0); }
 setInterval(()=>{const t=new Date();
   $('#clock').textContent=[t.getHours(),t.getMinutes(),t.getSeconds()].map(x=>String(x).padStart(2,'0')).join(':');
-  nodes.forEach(n=>n.up++);$('#upt').textContent=fmtUp(nodes[1].up);},1000);
+  const p=nodes.find(n=>n.hero)||byId.starbase2; if(p)$('#upt').textContent=fmtUp(liveUp(p));},1000);
 function neonEgg(){ // colour by word: NEON=pink, pulse=blue, Tech=pink, shop=blue
   const words=[['NEON','#ff3df0'],['pulse','#3df0ff'],['Tech','#ff3df0'],['shop','#3df0ff']];
   let o='';words.forEach(([w,c])=>o+=`<span style="color:${c};text-shadow:0 0 6px ${c}">${w}</span>`);
   return '&nbsp;&nbsp;&nbsp;✦ '+o+' ✦&nbsp;&nbsp;&nbsp;';}
-function buildTicker(){const parts=['<span class="ok">◉ FLEET NOMINAL</span>'];
-  nodes.forEach(n=>{const hot=n.m.cpu>85||n.m.temp>70;
-    parts.push('&nbsp;&nbsp;•&nbsp;&nbsp;'+n.name+' '+(hot?'<span class="warn">CPU/TEMP HIGH</span>':'<span class="ok">OK</span>')+' &nbsp; net '+Math.round(n.m.net)+'%');});
+function buildTicker(){
+  const off=nodes.filter(n=>!n.online).length;
+  const parts=[off?`<span class="warn">◉ ${off} NODE${off>1?'S':''} OFFLINE</span>`
+                  :'<span class="ok">◉ FLEET NOMINAL</span>'];
+  nodes.forEach(n=>{const hot=n.m.cpu>85||(n.gputemp||0)>80||!n.online;
+    parts.push('&nbsp;&nbsp;•&nbsp;&nbsp;'+n.name+' '+
+      (!n.online?'<span class="warn">OFFLINE</span>':hot?'<span class="warn">HOT</span>':'<span class="ok">OK</span>')+
+      ' &nbsp; cpu '+Math.round(n.m.cpu)+'%');});
   parts.push('&nbsp;&nbsp;•&nbsp;&nbsp;<span class="warn">parent SB2 · '+nodes.length+' nodes streaming</span>');
   parts.push(neonEgg());
   $('#ticker').innerHTML=parts.join('')+'&nbsp;&nbsp;&nbsp;';}
@@ -192,60 +187,46 @@ setInterval(buildTicker,4200);buildTicker();
 
 document.querySelectorAll('.pill').forEach(p=>p.addEventListener('click',()=>{
   document.querySelectorAll('.pill').forEach(q=>q.removeAttribute('data-on'));
-  p.setAttribute('data-on','');forceMode=p.dataset.mode;buildStrip();}));
+  p.setAttribute('data-on','');forceMode=p.dataset.mode;if(built)buildStrip();}));
 
 const drill=$('#drill'),drillPanel=$('#drillPanel');let drillNode=null;
 function openDrill(n){drillNode=n;drill.hidden=false;
   const hwRows=Object.entries(n.hw).map(([k,val])=>`<div class="hwrow"><b>${k}</b><span>${val}</span></div>`).join('');
-  if(n.type==='lite'){openLiteDrill(n,hwRows);return;}
-  drillPanel._litecells=null;
+  drillPanel._cells=null;
+  const link = n.type==='snmp' ? 'SNMP ▸ SB2' : n.role==='PARENT' ? 'PARENT' : 'stream ▸ SB2';
   drillPanel.innerHTML=`
    <button class="dp-x" id="dpX">[ ✕ ]</button>
    <div class="dp-side"><div class="elbow2"></div>
      <div class="dp-name">${n.name}</div>
      <div class="dp-sub">${n.use}</div>
-     <div class="dp-sub">${n.id} · ${n.role} · ▸ SB2</div>
+     <div class="dp-sub">${n.id} · ${n.role} · ${link}</div>
      <div class="dp-hw">${hwRows}</div></div>
    <div class="dp-body" id="dpBody"></div>`;
-  const cells=[['CPU %','cpu','needle'],['NET %','net','needle'],['RAM %','ram','bar'],['DISK %','disk','bar'],
-    ['TEMP °C','temp','needle'],['TRAFFIC 24H','traffic','tank'],['NET LOAD','net','bar'],['UPTIME','up','lcd']];
+  const cells=[['CPU %','cpu','needle'],['NET %','net','needle'],['RAM %','ram','bar'],['DISK %','disk','bar']];
+  if(n.hasGpu){cells.push(['GPU %','gpu','needle']);cells.push(['GPU °C','gputemp','lcd']);}
+  cells.push(['UPTIME','up','lcd']);
+  cells.push(n.type==='snmp'?['LATENCY','latency','lcd']:['STATUS','online','word']);
   const body=drillPanel.querySelector('#dpBody');
-  cells.forEach(([lab,mk,type])=>{const c=el('div','dp-cell');c.appendChild(el('div','mlab',lab));
+  cells.forEach(([lab,mk,type])=>{const c=el('div','dp-cell');c.appendChild(el('div','mlab',lab));c._mk=mk;c._type=type;
     if(type==='lcd'){const b=el('div','big','—');c.appendChild(b);c._lcd=b;}
-    else if(type==='tank'){const t=el('div','tank dtank');const f=el('div','fill');t.appendChild(f);c.appendChild(t);c._fill=f;}
-    else if(type==='bar'){const face=el('div','face');const bar=el('div','ledbar');buildLedbar(bar);face.appendChild(bar);c.appendChild(face);c._bar=bar;c._mk=mk;}
-    else{const face=el('div','face');const cv=el('canvas');face.appendChild(cv);c.appendChild(face);c._cv=cv;c._mk=mk;c._retro=n.retro;}
+    else if(type==='word'){const b=el('div','big word','—');c.appendChild(b);c._word=b;}
+    else if(type==='bar'){const face=el('div','face');const bar=el('div','ledbar');buildLedbar(bar);face.appendChild(bar);c.appendChild(face);c._bar=bar;}
+    else{const face=el('div','face');const cv=el('canvas');face.appendChild(cv);c.appendChild(face);c._cv=cv;c._retro=n.retro;}
     body.appendChild(c);});
   drillPanel._cells=body.querySelectorAll('.dp-cell');
   drillPanel.querySelector('#dpX').addEventListener('click',e=>{e.stopPropagation();closeDrill();});
 }
-function openLiteDrill(n,hwRows){
-  drillPanel.innerHTML=`
-   <button class="dp-x" id="dpX">[ ✕ ]</button>
-   <div class="dp-side"><div class="elbow2"></div>
-     <div class="dp-name">${n.name}</div><div class="dp-sub">${n.use}</div>
-     <div class="dp-sub">${n.id} · agent-less</div><div class="dp-hw">${hwRows}</div></div>
-   <div class="dp-body dp-lite" id="dpBody"></div>`;
-  const body=drillPanel.querySelector('#dpBody');
-  const c1=el('div','dp-cell');c1.appendChild(el('div','mlab','STATUS'));const b1=el('div','big word','—');c1.appendChild(b1);c1._lstate=b1;
-  const c2=el('div','dp-cell');c2.appendChild(el('div','mlab','LATENCY'));const b2=el('div','big','--');c2.appendChild(b2);c2._llat=b2;
-  const c3=el('div','dp-cell wide');c3.appendChild(el('div','mlab','PING HISTORY'));
-  const face=el('div','face');const cv=el('canvas');face.appendChild(cv);c3.appendChild(face);c3._lping=cv;
-  body.appendChild(c1);body.appendChild(c2);body.appendChild(c3);
-  drillPanel._litecells={c1,c2,c3};drillPanel._cells=null;
-  drillPanel.querySelector('#dpX').addEventListener('click',e=>{e.stopPropagation();closeDrill();});
-}
-function renderDrill(){const n=drillNode;
-  if(drillPanel._litecells){const L=drillPanel._litecells;
-    L.c1._lstate.textContent=n.reachable?'ONLINE':'OFFLINE';
-    L.c1._lstate.style.color=n.reachable?'var(--grn)':'var(--red)';
-    L.c2._llat.innerHTML=n.reachable?Math.round(n.ping)+'<span class="u">MS</span>':'—';
-    drawPing(L.c3._lping,n.pingHist,n.reachable);return;}
+function renderDrill(){const n=drillNode;if(!drillPanel._cells)return;
   drillPanel._cells.forEach(c=>{
-  if(c._lcd)c._lcd.textContent=fmtUp(n.up);
-  else if(c._fill)c._fill.style.height=(n.traffic/n.cap*100).toFixed(1)+'%';
-  else if(c._bar)drawLedbar(c._bar,n.m[c._mk]);
-  else if(c._cv)drawNeedle(c._cv,n.m[c._mk],c._retro);});}
+    if(c._type==='lcd'){
+      if(c._mk==='up')c._lcd.textContent=fmtUp(liveUp(n));
+      else if(c._mk==='gputemp')c._lcd.innerHTML=(n.gputemp!=null?Math.round(n.gputemp):'--')+'<span class="u">°C</span>';
+      else if(c._mk==='latency')c._lcd.innerHTML=(n.online&&n.latency!=null?n.latency:'--')+'<span class="u">MS</span>';
+    }
+    else if(c._type==='word'){c._word.textContent=n.online?'ONLINE':'OFFLINE';
+      c._word.style.color=n.online?'var(--grn)':'var(--red)';}
+    else if(c._bar)drawLedbar(c._bar,n.m[c._mk]);
+    else if(c._cv)drawNeedle(c._cv,n.m[c._mk],c._retro);});}
 function closeDrill(){drill.hidden=true;drillNode=null;}
 drill.addEventListener('click',e=>{if(e.target===drill)closeDrill();});
 
@@ -286,10 +267,10 @@ function applySavedOrder(){try{const ids=JSON.parse(localStorage.getItem('lcars.
 makeSortable(content,{itemSel:'.node',pan:true,onTap:it=>openDrill(it._node),onReorder:saveNodeOrder});
 makeSortable(drillPanel,{itemSel:'.dp-cell',pan:false}); // reorder cells inside a drill
 
-applySavedOrder();buildStrip();requestAnimationFrame(render);
-const _h=location.hash; // test hooks
+requestAnimationFrame(render);
+/* test hooks — run once the first poll has built the strip */
+const _h=location.hash;
 if(_h.startsWith('#drill')){const id=_h.split('=')[1];
-  setTimeout(()=>openDrill(id?nodes.find(n=>n.id===id)||nodes[1]:nodes[1]),300);}
-else if(_h==='#lite')setTimeout(()=>openDrill(nodes.find(n=>n.type==='lite')),300);
-else if(_h==='#end')setTimeout(()=>{content.scrollLeft=content.scrollWidth;},400);
+  const w=setInterval(()=>{if(built){clearInterval(w);openDrill(id?byId[id]||nodes[0]:nodes[0]);}},120);}
+else if(_h==='#end'){const w=setInterval(()=>{if(built){clearInterval(w);content.scrollLeft=content.scrollWidth;}},120);}
 })();
