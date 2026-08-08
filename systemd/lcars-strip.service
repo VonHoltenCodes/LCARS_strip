@@ -1,0 +1,19 @@
+[Unit]
+Description=LCARS_strip fleet monitor panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/lcars-strip/server.py
+Restart=always
+RestartSec=3
+# hardening (server only reads its own dir + writes /etc/lcars-strip)
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/etc/lcars-strip
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

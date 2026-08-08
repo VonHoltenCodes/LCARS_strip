@@ -209,3 +209,35 @@ button{font-family:var(--font-pixel);color:inherit;background:none;border:none;c
   position:absolute;left:50%;top:58%;transform:translate(-50%,-50%);
   font:700 13px "Pixelify Sans",monospace;color:var(--cyan);
   text-shadow:0 0 10px var(--cyan);letter-spacing:.12em;}
+
+/* ---- node console (gear button / add-remove UI) ---- */
+.gearpill{background:linear-gradient(180deg,#7d5cff,#5c3fd0);color:#0d0716;margin-top:4px;}
+.gearpill:active{filter:brightness(1.25);}
+.cfg-body{flex:1;display:flex;flex-direction:column;gap:8px;padding:10px 12px;overflow:hidden;}
+.cfg-list{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:4px;padding-right:4px;}
+.cfg-node{display:flex;align-items:center;gap:10px;padding:4px 8px;
+  background:rgba(43,208,255,.06);border:1px solid rgba(43,208,255,.22);border-radius:6px;}
+.cfg-nname{font:700 12px "Pixelify Sans",monospace;color:var(--cyan);min-width:130px;
+  letter-spacing:.05em;}
+.cfg-nhost{font:11px "DSEG14 Classic","Pixelify Sans",monospace;color:#9fd8a8;min-width:120px;}
+.cfg-ntype{font:10px "Pixelify Sans",monospace;color:#8fb0d0;flex:1;}
+.cfg-add{border-top:1px solid rgba(255,153,0,.35);padding-top:6px;}
+.cfg-row{display:flex;gap:6px;margin-top:5px;}
+.cfg-in{flex:1;background:#0a0d12;border:1px solid rgba(43,208,255,.35);border-radius:5px;
+  color:#d5eee0;font:12px "Pixelify Sans",monospace;padding:5px 8px;letter-spacing:.06em;}
+.cfg-in:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 8px rgba(43,208,255,.35);}
+.cfg-btn{background:linear-gradient(180deg,#2bd0ff,#1793c9);border:0;border-radius:5px;
+  color:#04222e;font:700 11px "Pixelify Sans",monospace;padding:5px 12px;cursor:pointer;
+  letter-spacing:.08em;}
+.cfg-btn:active{filter:brightness(1.25);}
+.cfg-btn.go{background:linear-gradient(180deg,#2bff66,#15c246);color:#04220e;}
+.cfg-btn.rm{background:linear-gradient(180deg,#ff6a5e,#cc2c1e);color:#2a0503;
+  padding:2px 10px;font-size:13px;}
+.cfg-probe{font:11px "Pixelify Sans",monospace;color:#8fb0d0;margin-top:5px;min-height:14px;
+  letter-spacing:.04em;}
+.cfg-probe b{color:var(--grn);}
+.cfg-msg{min-height:12px;}
+.cfg-msg.ok{color:var(--grn);}
+.cfg-msg.err{color:var(--red);}
+
+.cfg-body{padding-top:30px;}

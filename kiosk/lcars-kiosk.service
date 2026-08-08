@@ -1,0 +1,17 @@
+# Boot-to-panel kiosk (systemd USER service — needs a graphical session).
+# Install:  mkdir -p ~/.config/systemd/user
+#           cp lcars-kiosk.service ~/.config/systemd/user/
+#           systemctl --user daemon-reload && systemctl --user enable --now lcars-kiosk
+# Autologin + a bare session (e.g. cage, or GNOME with autologin) completes boot-to-panel.
+[Unit]
+Description=LCARS_strip kiosk browser
+After=graphical-session.target lcars-strip.service
+
+[Service]
+ExecStart=/usr/bin/chromium --kiosk --noerrdialogs --disable-session-crashed-bubble \
+  --disable-infobars --check-for-update-interval=31536000 http://localhost:8899/
+Restart=always
+RestartSec=4
+
+[Install]
+WantedBy=graphical-session.target

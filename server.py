@@ -1,150 +1,407 @@
 #!/usr/bin/env python3
-"""LCARS_strip backend: serves the panel + /api/fleet (live Netdata, normalized)."""
-import json, os, urllib.request, urllib.parse
+"""LCARS_strip — self-contained fleet-monitor backend (direct-poll).
+
+Polls every node DIRECTLY — no Netdata parent, no vnodes, no shim layer:
+  linux    -> the node's own Netdata agent      http://<host>:19999
+  windows  -> windows_exporter                  http://<host>:9182/metrics
+              (+ nvidia_gpu_exporter            http://<host>:9835/metrics)
+  xp-snmp  -> SNMP v2c Host Resources MIB (snmpwalk) + ping
+
+Config: $LCARS_CONF > /etc/lcars-strip/fleet.json > ./fleet.json
+Pure Python stdlib. xp-snmp nodes need the net-snmp CLI tools (`snmpwalk`).
+
+Endpoints:
+  GET  /               the panel (static files)
+  GET  /api/fleet      latest snapshot of every node, normalized
+  GET  /api/config     current fleet.json
+  POST /api/config     replace config (validated, written atomically, hot-reload)
+  POST /api/probe      {"host": "..."} -> auto-detect node type + suggested entry
+"""
+import json, os, re, socket, subprocess, threading, time, urllib.request, urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-ND   = "http://127.0.0.1:19999"
-ROOT = os.environ.get("LCARS_ROOT", "/home/traxx/LCARS_strip")
+ROOT = os.path.dirname(os.path.abspath(__file__))
+CONF_PATHS = [p for p in (os.environ.get("LCARS_CONF"),
+                          "/etc/lcars-strip/fleet.json",
+                          os.path.join(ROOT, "fleet.json")) if p]
+TYPES = ("linux", "windows", "xp-snmp")
 
-# Fleet: nd = Netdata node name; type = linux|windows|snmp
-NODES = [
-  {"id":"starbase1","name":"STARBASE1","nd":"starbase1","type":"linux","role":"child","use":"MEDIA · PLEX · DNS"},
-  {"id":"starbase2","name":"STARBASE2","nd":"starbase2","type":"linux","role":"PARENT","use":"WEB · DB · MONITOR","hero":True},
-  {"id":"cybertower","name":"CYBERTOWER","nd":"pop-os","type":"linux","role":"child","use":"DEV WORKSTATION","gpu":True,"retro":True},
-  {"id":"skytech","name":"SKYTECH","nd":"SKYTECH","type":"windows","role":"child","use":"RACING SIM","gpu":True},
-  {"id":"vonholten308","name":"VONHOLTEN308","nd":"VONHOLTEN308","type":"windows","role":"child","use":"STARSHIP · MOBILE","gpu":True},
-  {"id":"kidsdesk","name":"KIDS DESK","nd":"kidsdesk","type":"linux","role":"child","use":"FAMILY PC"},
-  {"id":"gigalab","name":"GIGALAB","nd":"gigalab","type":"linux","role":"child","use":"LAB BENCH"},
-  {"id":"labstudio","name":"LAB STUDIO","nd":"lab-studio","type":"linux","role":"child","use":"PLEX RECEIVER","gpu":True},
-  {"id":"retrobeast","name":"RETROBEAST-V2","nd":"RETROBEAST-V2","type":"snmp","role":"lite","use":"WINDOWS XP","retro":True},
-]
+# ---------------------------------------------------------------- config
+_cfg_lock = threading.Lock()
+_cfg = {"port": 8899, "poll_seconds": 2, "nodes": []}
+_cfg_path = None
 
-_charts = {}   # host -> [chart ids]  (cached; ids are stable)
+def slugify(s):
+    return re.sub(r"[^a-z0-9]+", "-", str(s).lower()).strip("-") or "node"
 
-def nd_get(path):
+def norm_node(n):
+    """Fill defaults; raise ValueError on junk."""
+    if not isinstance(n, dict): raise ValueError("node must be an object")
+    host = str(n.get("host", "")).strip()
+    if not host or re.search(r"[\s/]", host): raise ValueError("bad host: %r" % host)
+    t = n.get("type", "linux")
+    if t not in TYPES: raise ValueError("type must be one of %s" % (TYPES,))
+    name = str(n.get("name") or host).strip()
+    out = {"id": n.get("id") or slugify(name), "name": name, "host": host, "type": t,
+           "use": str(n.get("use", "")), "hero": bool(n.get("hero")),
+           "retro": bool(n.get("retro")), "gpu": bool(n.get("gpu")),
+           "hw": n.get("hw") if isinstance(n.get("hw"), dict) else {}}
+    if t == "xp-snmp":
+        out["community"] = str(n.get("community", "public"))
+    return out
+
+def norm_config(c):
+    if not isinstance(c, dict): raise ValueError("config must be an object")
+    nodes = [norm_node(n) for n in c.get("nodes", [])]
+    ids = [n["id"] for n in nodes]
+    if len(ids) != len(set(ids)): raise ValueError("duplicate node ids")
+    return {"port": int(c.get("port", 8899)),
+            "poll_seconds": max(1, int(c.get("poll_seconds", 2))),
+            "nodes": nodes}
+
+def load_config():
+    global _cfg, _cfg_path
+    for p in CONF_PATHS:
+        if os.path.isfile(p):
+            with open(p) as f:
+                _cfg = norm_config(json.load(f))
+            _cfg_path = p
+            return
+    _cfg_path = CONF_PATHS[-1]   # nothing found: start empty, save target = last
+
+def save_config(c):
+    global _cfg
+    c = norm_config(c)
+    tmp = _cfg_path + ".tmp"
+    os.makedirs(os.path.dirname(_cfg_path) or ".", exist_ok=True)
+    with open(tmp, "w") as f:
+        json.dump(c, f, indent=2)
+        f.write("\n")
+    os.replace(tmp, _cfg_path)
+    with _cfg_lock:
+        _cfg = c
+
+# ---------------------------------------------------------------- helpers
+def http_get(url, timeout=2.5):
+    with urllib.request.urlopen(url, timeout=timeout) as r:
+        return r.read().decode("utf-8", "replace")
+
+def http_json(url, timeout=2.5):
+    return json.loads(http_get(url, timeout))
+
+def clamp(v):
+    try: return round(max(0.0, min(100.0, float(v))), 1)
+    except Exception: return None
+
+def ping_ms(host):
     try:
-        with urllib.request.urlopen(ND + path, timeout=3) as r:
-            return json.load(r)
+        out = subprocess.check_output(["ping", "-c", "1", "-W", "1", host],
+                                      text=True, timeout=4, stderr=subprocess.DEVNULL)
+        m = re.search(r"time=([\d.]+)", out)
+        return round(float(m.group(1)), 2) if m else None
     except Exception:
         return None
 
-def charts(host):
-    if host not in _charts:
-        d = nd_get("/host/%s/api/v1/charts" % urllib.parse.quote(host))
-        _charts[host] = list(d["charts"].keys()) if d and d.get("charts") else []
-    return _charts[host]
+# ---------------------------------------------------------------- linux (Netdata direct)
+_charts_cache = {}   # base_url -> [chart ids]
 
-def cid(host, *subs):
-    for c in charts(host):
+def nd_charts(base):
+    if base not in _charts_cache:
+        d = http_json(base + "/api/v1/charts")
+        _charts_cache[base] = list(d.get("charts", {}).keys())
+    return _charts_cache[base]
+
+def nd_cid(base, *subs):
+    for c in nd_charts(base):
         if all(s in c for s in subs):
             return c
     return None
 
-def dims(host, chart):
+def nd_dims(base, chart):
     if not chart: return None
-    d = nd_get("/host/%s/api/v1/data?chart=%s&after=-1&points=1&format=json"
-               % (urllib.parse.quote(host), urllib.parse.quote(chart)))
-    if not d or not d.get("data"): return None
-    return {k: (v if isinstance(v,(int,float)) else 0) for k, v in zip(d["labels"][1:], d["data"][0][1:])}
+    d = http_json(base + "/api/v1/data?chart=%s&after=-1&points=1&format=json"
+                  % urllib.parse.quote(chart))
+    if not d.get("data"): return None
+    return {k: (v if isinstance(v, (int, float)) else 0)
+            for k, v in zip(d["labels"][1:], d["data"][0][1:])}
 
-def clamp(v):
-    try: return round(max(0.0, min(100.0, float(v))), 1)
-    except: return None
-
-def linux_metrics(h):
+def linux_metrics(n):
+    base = "http://%s:19999" % n["host"]
     o = {}
-    c = dims(h, cid(h, "system.cpu"))
+    c = nd_dims(base, nd_cid(base, "system.cpu"))
     if c: o["cpu"] = clamp(sum(c.values()))
-    r = dims(h, cid(h, "system.ram"))
+    r = nd_dims(base, nd_cid(base, "system.ram"))
     if r:
         tot = sum(r.values())
-        o["ram"] = clamp(r.get("used", 0)/tot*100) if tot else None
-    n = dims(h, cid(h, "system.net"))
-    if n: o["net"] = clamp(sum(abs(v) for v in n.values())/1000.0)  # kbps -> % of ~100Mbps
-    d = dims(h, cid(h, "disk_space./"))
+        o["ram"] = clamp(r.get("used", 0) / tot * 100) if tot else None
+    net = nd_dims(base, nd_cid(base, "system.net"))
+    if net: o["net"] = clamp(sum(abs(v) for v in net.values()) / 1000.0)  # kbit/s -> % of 100Mbps
+    d = nd_dims(base, nd_cid(base, "disk_space./"))
     if d:
         tot = sum(d.values())
-        o["disk"] = clamp(d.get("used", 0)/tot*100) if tot else None
-    u = dims(h, cid(h, "system.uptime"))
+        o["disk"] = clamp(d.get("used", 0) / tot * 100) if tot else None
+    u = nd_dims(base, nd_cid(base, "system.uptime"))
     if u: o["uptime"] = int(list(u.values())[0])
-    g = dims(h, cid(h, "nvidia_smi", "gpu_utilization")) or dims(h, cid(h, "nvidia", "utilization"))
-    if g: o["gpuutil"] = clamp(list(g.values())[0])
-    gt = dims(h, cid(h, "nvidia_smi", "temperature")) or dims(h, cid(h, "nvidia", "temperature"))
-    if gt: o["gputemp"] = round(list(gt.values())[0])
+    if n.get("gpu"):
+        g = nd_dims(base, nd_cid(base, "nvidia_smi", "gpu_utilization")) \
+            or nd_dims(base, nd_cid(base, "nvidia", "utilization"))
+        if g: o["gpuutil"] = clamp(list(g.values())[0])
+        gt = nd_dims(base, nd_cid(base, "nvidia_smi", "temperature")) \
+             or nd_dims(base, nd_cid(base, "nvidia", "temperature"))
+        if gt: o["gputemp"] = round(list(gt.values())[0])
     o["online"] = "cpu" in o
     return o
 
-def win_metrics(h):
+# ---------------------------------------------------------------- windows (raw Prometheus)
+_prev = {}   # node id -> {"ts":..., "idle":..., "netbytes":...}
+
+def prom_parse(text):
+    """-> list of (metric_name, label_string, value)"""
+    out = []
+    for line in text.splitlines():
+        if not line or line[0] == "#": continue
+        m = re.match(r"([A-Za-z_:][A-Za-z0-9_:]*)(\{.*\})?\s+([-+0-9.eE]+|NaN)\s*$", line)
+        if not m: continue
+        try: v = float(m.group(3))
+        except ValueError: continue
+        if v != v: continue           # NaN
+        out.append((m.group(1), m.group(2) or "", v))
+    return out
+
+def psum(rows, name, label_sub=None):
+    vals = [v for (mn, lb, v) in rows if mn == name and (label_sub is None or label_sub in lb)]
+    return sum(vals) if vals else None
+
+def pcount(rows, name, label_sub=None):
+    return len([1 for (mn, lb, v) in rows if mn == name and (label_sub is None or label_sub in lb)])
+
+def win_metrics(n):
     o = {}
-    idle = dims(h, cid(h, "windows_cpu_time_total", "mode=idle"))
-    if idle: o["cpu"] = clamp(100*(1 - sum(idle.values())/len(idle)))
-    avail = dims(h, cid(h, "windows_memory_available_bytes"))
-    total = dims(h, cid(h, "windows_memory_physical_total_bytes"))
-    if avail and total:
-        a = list(avail.values())[0]; t = list(total.values())[0]
-        o["ram"] = clamp((1 - a/t)*100) if t else None
-    net = dims(h, cid(h, "windows_net_bytes_total")) or dims(h, cid(h, "windows_net_bytes_received_total"))
-    if net: o["net"] = clamp(sum(abs(v) for v in net.values())*8/1e6/1000.0*100)
-    ld = dims(h, cid(h, "windows_logical_disk_free_bytes", "volume=C:"))
-    lt = dims(h, cid(h, "windows_logical_disk_size_bytes", "volume=C:"))
-    if ld and lt:
-        f = list(ld.values())[0]; t = list(lt.values())[0]
-        o["disk"] = clamp((1 - f/t)*100) if t else None
-    g = dims(h, cid(h, "nvidia_smi_utilization_gpu_ratio"))
-    if g: o["gpuutil"] = clamp(list(g.values())[0]*100)
-    gt = dims(h, cid(h, "nvidia_smi_temperature_gpu\""))  # exact metric, not _tlimit
-    if not gt: gt = dims(h, cid(h, "nvidia_smi_temperature_gpu-"))
-    if gt: o["gputemp"] = round(list(gt.values())[0])
-    up = dims(h, cid(h, "windows_system_system_up_time"))
-    o["online"] = "cpu" in o or "ram" in o
+    now = time.time()
+    rows = prom_parse(http_get("http://%s:9182/metrics" % n["host"], timeout=3))
+    # CPU%: idle-seconds counter -> rate over the poll interval, divided by core count
+    idle = psum(rows, "windows_cpu_time_total", 'mode="idle"')
+    ncores = pcount(rows, "windows_cpu_time_total", 'mode="idle"')
+    netb = psum(rows, "windows_net_bytes_total")
+    p = _prev.get(n["id"])
+    if p and idle is not None and now > p["ts"]:
+        dt = now - p["ts"]
+        if p.get("idle") is not None and ncores:
+            rate = (idle - p["idle"]) / dt
+            o["cpu"] = clamp(100 * (1 - rate / ncores))
+        if p.get("netbytes") is not None and netb is not None:
+            mbps = (netb - p["netbytes"]) / dt * 8 / 1e6
+            o["net"] = clamp(mbps)            # % of 100Mbps
+    _prev[n["id"]] = {"ts": now, "idle": idle, "netbytes": netb}
+    avail = psum(rows, "windows_memory_available_bytes")
+    total = psum(rows, "windows_memory_physical_total_bytes")
+    if avail is not None and total:
+        o["ram"] = clamp((1 - avail / total) * 100)
+    free = psum(rows, "windows_logical_disk_free_bytes", 'volume="C:"')
+    size = psum(rows, "windows_logical_disk_size_bytes", 'volume="C:"')
+    if free is not None and size:
+        o["disk"] = clamp((1 - free / size) * 100)
+    boot = psum(rows, "windows_system_boot_time_timestamp") \
+           or psum(rows, "windows_system_system_up_time")      # older exporter name
+    if boot: o["uptime"] = max(0, int(now - boot))
+    if n.get("gpu"):
+        try:
+            g = prom_parse(http_get("http://%s:9835/metrics" % n["host"], timeout=3))
+            u = psum(g, "nvidia_smi_utilization_gpu_ratio")
+            if u is not None: o["gpuutil"] = clamp(u * 100)
+            t = psum(g, "nvidia_smi_temperature_gpu")
+            if t is not None: o["gputemp"] = round(t)
+        except Exception:
+            pass                                # GPU exporter down != node down
+    o["online"] = "ram" in o or "cpu" in o
     return o
 
-def snmp_metrics(h):
+# ---------------------------------------------------------------- xp-snmp (direct walk)
+def snmp_walk(host, community, oid):
+    try:
+        out = subprocess.check_output(
+            ["snmpwalk", "-v2c", "-c", community, "-Oqv", "-t", "2", "-r", "1", host, oid],
+            text=True, timeout=8, stderr=subprocess.DEVNULL)
+        return [l.strip().strip('"') for l in out.splitlines() if l.strip()]
+    except Exception:
+        return []
+
+def _num(x):
+    m = re.match(r"\s*(\d+)", x)          # tolerate "4096 Bytes"
+    return int(m.group(1)) if m else None
+
+def snmp_metrics(n):
+    host, comm = n["host"], n.get("community", "public")
     o = {}
-    c = dims(h, cid(h, "retrobeast_cpu_percent"))
-    if c: o["cpu"] = clamp(list(c.values())[0])
-    ram = dims(h, cid(h, "retrobeast_storage_used_percent", "physical_memory"))
-    if ram: o["ram"] = clamp(list(ram.values())[0])
-    dk = dims(h, cid(h, "retrobeast_storage_used_percent", "disk_c"))
-    if dk: o["disk"] = clamp(list(dk.values())[0])
-    lat = dims(h, cid(h, "retrobeast_latency_ms"))
-    if lat: o["latency"] = round(list(lat.values())[0], 2)
-    rc = dims(h, cid(h, "retrobeast_reachable"))
-    o["online"] = bool(rc and list(rc.values())[0] >= 1)
+    loads = [int(x) for x in snmp_walk(host, comm, "1.3.6.1.2.1.25.3.3.1.2") if x.isdigit()]
+    if loads: o["cpu"] = clamp(sum(loads) / len(loads))
+    descrs = snmp_walk(host, comm, "1.3.6.1.2.1.25.2.3.1.3")
+    sizes  = snmp_walk(host, comm, "1.3.6.1.2.1.25.2.3.1.5")
+    useds  = snmp_walk(host, comm, "1.3.6.1.2.1.25.2.3.1.6")
+    for i in range(min(len(descrs), len(sizes), len(useds))):
+        s, us = _num(sizes[i]), _num(useds[i])
+        if not s or us is None: continue
+        d = descrs[i].lower()
+        if d.startswith("physical memory"):
+            o["ram"] = clamp(us * 100.0 / s)
+        elif re.match(r"c:", d):
+            o["disk"] = clamp(us * 100.0 / s)
+    up = snmp_walk(host, comm, "1.3.6.1.2.1.25.1.1.0")   # hrSystemUptime
+    if up:
+        # -Oqv prints timeticks as [d:]h:m:s.cs — or raw ticks on some agents
+        m = re.match(r"(?:(\d+):)?(\d+):(\d+):(\d+)(?:\.\d+)?$", up[0])
+        if m:
+            d, h, mi, s = (int(x or 0) for x in m.groups())
+            o["uptime"] = ((d * 24 + h) * 60 + mi) * 60 + s
+        elif _num(up[0]) is not None:
+            o["uptime"] = _num(up[0]) // 100
+    lat = ping_ms(host)
+    if lat is not None: o["latency"] = lat
+    o["online"] = bool(o.get("cpu") is not None or "ram" in o or lat is not None)
     return o
+
+EXTRACT = {"linux": linux_metrics, "windows": win_metrics, "xp-snmp": snmp_metrics}
+
+# ---------------------------------------------------------------- poller
+_snap_lock = threading.Lock()
+_snapshot = {}    # node id -> metrics dict
+
+def poll_node(n):
+    try:
+        m = EXTRACT[n["type"]](n)
+    except Exception as e:
+        m = {"online": False, "err": e.__class__.__name__}
+    m["at"] = int(time.time())
+    return n["id"], m
+
+def poller():
+    while True:
+        with _cfg_lock:
+            nodes = list(_cfg["nodes"]); wait = _cfg["poll_seconds"]
+        if nodes:
+            with ThreadPoolExecutor(max_workers=min(12, len(nodes))) as ex:
+                results = list(ex.map(poll_node, nodes))
+            with _snap_lock:
+                _snapshot.clear()
+                _snapshot.update(dict(results))
+        time.sleep(wait)
 
 def fleet():
+    with _cfg_lock:
+        nodes = list(_cfg["nodes"])
+    with _snap_lock:
+        snap = dict(_snapshot)
     out = []
-    for n in NODES:
-        try:
-            m = {"linux":linux_metrics,"windows":win_metrics,"snmp":snmp_metrics}[n["type"]](n["nd"])
-        except Exception as e:
-            m = {"online": False, "err": str(e)}
-        out.append({**{k:n[k] for k in ("id","name","type","role","use") if k in n},
-                    "hero": n.get("hero", False), "gpu": n.get("gpu", False), "retro": n.get("retro", False),
-                    **m})
+    for n in nodes:
+        m = snap.get(n["id"], {"online": False})
+        out.append({"id": n["id"], "name": n["name"], "host": n["host"],
+                    "type": n["type"], "use": n["use"], "hero": n["hero"],
+                    "retro": n["retro"], "gpu": n["gpu"], "hw": n["hw"], **m})
     return {"nodes": out}
 
+# ---------------------------------------------------------------- probe
+def probe(host):
+    res = {"host": host, "detected": None, "suggest": None}
+    lat = ping_ms(host)
+    res["ping_ms"] = lat
+    # linux: Netdata agent?
+    try:
+        info = http_json("http://%s:19999/api/v1/info" % host, timeout=2)
+        hw = {}
+        if info.get("os_name"): hw["OS"] = "%s %s" % (info["os_name"], info.get("os_version", ""))
+        if info.get("cores_total"): hw["CPU"] = "%s cores" % info["cores_total"]
+        if info.get("ram_total"): hw["RAM"] = "%.0f GB" % (int(info["ram_total"]) / 2**30)
+        res["detected"] = "linux"
+        res["suggest"] = {"name": (info.get("mirrored_hosts") or [host])[0].upper(),
+                          "host": host, "type": "linux", "hw": hw}
+        return res
+    except Exception:
+        pass
+    # windows: windows_exporter?
+    try:
+        rows = prom_parse(http_get("http://%s:9182/metrics" % host, timeout=2))
+        if rows:
+            gpu = False
+            try:
+                gpu = bool(prom_parse(http_get("http://%s:9835/metrics" % host, timeout=2)))
+            except Exception:
+                pass
+            total = psum(rows, "windows_memory_physical_total_bytes")
+            hw = {"OS": "Windows", "AGENT": "windows_exporter"}
+            if total: hw["RAM"] = "%.0f GB" % (total / 2**30)
+            res["detected"] = "windows"
+            res["suggest"] = {"name": host, "host": host, "type": "windows", "gpu": gpu, "hw": hw}
+            return res
+    except Exception:
+        pass
+    # xp-snmp: anything answering Host Resources?
+    for comm in ("public",):
+        sysd = snmp_walk(host, comm, "1.3.6.1.2.1.1.1.0")
+        if sysd:
+            res["detected"] = "xp-snmp"
+            res["suggest"] = {"name": host, "host": host, "type": "xp-snmp",
+                              "community": comm, "retro": True,
+                              "hw": {"OS": sysd[0][:60], "AGENT": "SNMP + ping"}}
+            return res
+    return res   # nothing detected (ping_ms may still show it's alive)
+
+# ---------------------------------------------------------------- http
+MIME = {".html": "text/html", ".css": "text/css", ".js": "application/javascript",
+        ".ttf": "font/ttf", ".png": "image/png", ".svg": "image/svg+xml",
+        ".json": "application/json", ".mp4": "video/mp4", ".woff2": "font/woff2"}
+
 class H(BaseHTTPRequestHandler):
-    def _send(self, code, body, ctype):
+    def _send(self, code, body, ctype="application/json"):
         b = body.encode() if isinstance(body, str) else body
-        self.send_response(code); self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(b))); self.send_header("Cache-Control","no-store")
-        self.end_headers(); self.wfile.write(b)
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(b)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(b)
+
+    def _json_body(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        return json.loads(self.rfile.read(n) or b"{}")
+
     def do_GET(self):
         p = urllib.parse.urlparse(self.path).path
         if p == "/api/fleet":
-            self._send(200, json.dumps(fleet()), "application/json"); return
+            return self._send(200, json.dumps(fleet()))
+        if p == "/api/config":
+            with _cfg_lock:
+                return self._send(200, json.dumps(_cfg))
         rel = "index.html" if p in ("/", "") else p.lstrip("/")
         fp = os.path.normpath(os.path.join(ROOT, rel))
         if not fp.startswith(ROOT) or not os.path.isfile(fp):
-            self._send(404, "not found", "text/plain"); return
-        ext = os.path.splitext(fp)[1]
-        ct = {".html":"text/html",".css":"text/css",".js":"application/javascript",
-              ".ttf":"font/ttf",".png":"image/png",".json":"application/json"}.get(ext,"application/octet-stream")
+            return self._send(404, "not found", "text/plain")
         with open(fp, "rb") as f:
-            self._send(200, f.read(), ct)
+            self._send(200, f.read(), MIME.get(os.path.splitext(fp)[1], "application/octet-stream"))
+
+    def do_POST(self):
+        p = urllib.parse.urlparse(self.path).path
+        try:
+            if p == "/api/config":
+                body = self._json_body()
+                save_config(body)
+                return self._send(200, json.dumps({"ok": True, "path": _cfg_path}))
+            if p == "/api/probe":
+                host = str(self._json_body().get("host", "")).strip()
+                if not host or re.search(r"[\s/]", host):
+                    return self._send(400, json.dumps({"err": "bad host"}))
+                return self._send(200, json.dumps(probe(host)))
+        except (ValueError, json.JSONDecodeError) as e:
+            return self._send(400, json.dumps({"err": str(e)}))
+        except OSError as e:
+            return self._send(500, json.dumps({"err": "config write failed: %s" % e}))
+        self._send(404, json.dumps({"err": "no such endpoint"}))
+
     def log_message(self, *a): pass
 
 if __name__ == "__main__":
-    ThreadingHTTPServer(("0.0.0.0", 8899), H).serve_forever()
+    load_config()
+    threading.Thread(target=poller, daemon=True).start()
+    port = int(os.environ.get("LCARS_PORT") or _cfg.get("port", 8899))
+    print("lcars-strip: config=%s nodes=%d port=%d" % (_cfg_path, len(_cfg["nodes"]), port), flush=True)
+    ThreadingHTTPServer(("0.0.0.0", port), H).serve_forever()
