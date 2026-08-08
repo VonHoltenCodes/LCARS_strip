@@ -20,13 +20,19 @@ Here's the part that stops most people: the installer asks for the **XP
   mounts ISOs; on XP itself use a tool like WinCDEmu, or extract the ISO with
   7-Zip on another machine and copy the `i386` folder over the network or on
   a USB stick). Point the installer at that `i386` folder.
-- **No media at all?** XP install media is widely archived by the community
-  (e.g. on archive.org — search your edition + service pack). You need a
-  matching-SP `i386`; SP3 media covers an SP3 install.
+- **No media at all?** We've archived exactly the component set this guide
+  needs (the SNMP files pulled from XP SP3 `i386`, plus the expanded MIBs):
+  **<https://archive.org/details/windows-xp-sp3-snmp-files>**
+  Download it, point the component installer at the folder, and continue.
+  You need a matching service pack — this set is **SP3**.
 
 > We don't bundle the `i386` files in this repo — they're Microsoft's
-> binaries, not ours to redistribute. The steps above get you the same
-> result from media you have.
+> binaries, not ours to redistribute under GPLv3. The archive.org item above
+> is hosted by the Internet Archive as software preservation for keeping
+> vintage hardware operational; sets like it have been available there for
+> years. Fair warning: if Microsoft ever objects, it could be taken down —
+> in that case, fall back to the your-own-media steps above, which always
+> work.
 
 ## 2. Configure the SNMP service
 
