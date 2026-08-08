@@ -359,3 +359,14 @@ button{font-family:var(--font-pixel);color:inherit;background:none;border:none;c
   image-rendering:auto;}
 .wxcard.radar .wx-body{display:none;}
 .wxcard.radar .wx-radarwrap{display:block;}
+
+/* ---- engineering segmented pickers (conflicts grey out) ---- */
+.cfg-eng{display:flex;gap:10px;flex:1;flex-wrap:wrap;}
+.eng-grp{display:inline-flex;align-items:center;gap:3px;}
+.eng-lab{font:700 9px "Pixelify Sans",monospace;color:#8fb0d0;letter-spacing:.08em;
+  margin-right:2px;}
+.cfg-btn.eng-opt{background:#141a24;border:1px solid rgba(43,208,255,.35);color:#7f95ab;
+  font-size:9px;padding:3px 7px;border-radius:4px;}
+.cfg-btn.eng-opt.on{background:linear-gradient(180deg,#7d5cff,#5c3fd0);color:#efe9ff;
+  border-color:#9a8cff;box-shadow:0 0 8px rgba(154,140,255,.5);}
+.cfg-btn.eng-opt:disabled{opacity:.28;cursor:not-allowed;border-style:dashed;}

@@ -51,9 +51,12 @@ node's agent port, it's on the strip.
   The card rotates WS4000-style between conditions and **LOCAL RADAR**
   (nearest NOAA RIDGE site, auto-detected). Outside temp + date also join
   the clock in the header.
-- **ENGINEER mode** — pick the instrument per metric (needle / LED / scope)
-  from the ⚙ console; the panel remembers your loadout. Cards whose meters
-  are all scopes/LEDs auto-stack into wide bench-scope rows.
+- **ENGINEER mode** — build your own instrument loadout: every metric gets a
+  needle / LED / scope picker in the ⚙ console, and the panel remembers your
+  choices per display. Conflicting picks grey out automatically — needles
+  need the square gauge grid while scopes need stacked wide rows, so one card
+  can't hold both (LED bars pair with either). All-scope/LED loadouts
+  auto-stack into bench-scope rows.
 
 ## Gallery
 
@@ -70,6 +73,10 @@ node's agent port, it's on the strip.
 **RETRO mode** — every card as stacked bench-scope rows; trace amplitude and sweep speed follow the load, zone-colored.
 
 ![Retro oscilloscope mode](docs/img/retro_scopes.png)
+
+**⚙ Node console** — add machines by IP with auto-detect, set the panel title, run a RED ALERT drill, and build your ENGINEER loadout (conflicting meter styles grey out).
+
+![Node console with engineering pickers](docs/img/engineer_console.png)
 
 ## Install (panel host — Linux)
 

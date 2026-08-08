@@ -59,11 +59,25 @@ function net(s){ const b=$('#netstat'); if(b){ b.dataset.s=s; b.textContent = s=
 setInterval(pollFleet,2000); pollFleet();
 
 let forceMode='mix';
-/* ENGINEER mode: the operator picks the instrument per metric (persisted per display) */
-const ENG_DEF={cpu:'needle',net:'scope',ram:'led',disk:'led'};
+/* ENGINEER mode: the operator picks the instrument per metric (persisted per
+   display). Needles need the square grid; scopes need stacked wide rows — the
+   two can't share a card, so picking one greys the other out (LED fits both). */
+const ENG_DEF={cpu:'needle',net:'needle',ram:'led',disk:'led'};
 let engMeters=(()=>{try{return JSON.parse(localStorage.getItem('lcars.engineerMeters'))||{};}catch(_){return{};}})();
+(function sanitizeEng(){   // older saves could mix needle+scope — resolve to LED
+  const vals=Object.values({...ENG_DEF,...engMeters});
+  if(vals.includes('needle')&&vals.includes('scope'))
+    Object.keys(engMeters).forEach(k=>{if(engMeters[k]==='scope')engMeters[k]='led';});
+})();
 function saveEng(){try{localStorage.setItem('lcars.engineerMeters',JSON.stringify(engMeters));}catch(_){}}
-function meterType(mk){ if(forceMode==='engineer')return engMeters[mk]||ENG_DEF[mk];
+function engVal(mk){return engMeters[mk]||ENG_DEF[mk];}
+function engDisabled(mk,style){   // conflict rule: needle & scope never coexist
+  const others=['cpu','net','ram','disk'].filter(m=>m!==mk).map(engVal);
+  if(style==='scope')return others.includes('needle');
+  if(style==='needle')return others.includes('scope');
+  return false;                    // LED always allowed
+}
+function meterType(mk){ if(forceMode==='engineer')return engVal(mk);
   if(forceMode==='retro')return'scope';
   if(forceMode==='needle')return'needle';
   if(forceMode==='led')return'led'; return (mk==='cpu'||mk==='net')?'needle':'led'; }
@@ -433,16 +447,28 @@ function paintCfg(){
   const ti=cfgPanel.querySelector('#cfgTitle');ti.value=cfgData.title||'';
   cfgPanel.querySelector('#btnTitle').addEventListener('click',async()=>{
     cfgData.title=ti.value.trim()||'FLEET MONITOR';await saveCfg();});
-  // ENGINEERING: per-metric instrument cyclers (needle → led → scope)
-  const eng=cfgPanel.querySelector('#engBtns'),CYCLE=['needle','led','scope'];
+  // ENGINEERING: per-metric segmented pickers; conflicting styles grey out
+  const eng=cfgPanel.querySelector('#engBtns'),STYLES=['needle','led','scope'];
+  function engPaint(){
+    eng.querySelectorAll('.eng-opt').forEach(b=>{
+      const mk=b.dataset.mk,st=b.dataset.st;
+      b.classList.toggle('on',engVal(mk)===st);
+      b.disabled=engDisabled(mk,st);});
+  }
   ['cpu','net','ram','disk'].forEach(mk=>{
-    const b=el('button','cfg-btn eng',mk.toUpperCase()+':'+(engMeters[mk]||ENG_DEF[mk]).toUpperCase());
-    b.addEventListener('click',()=>{
-      const cur=engMeters[mk]||ENG_DEF[mk];
-      engMeters[mk]=CYCLE[(CYCLE.indexOf(cur)+1)%3];saveEng();
-      b.textContent=mk.toUpperCase()+':'+engMeters[mk].toUpperCase();
-      if(forceMode==='engineer')buildStrip();});
-    eng.appendChild(b);});
+    const grp=el('span','eng-grp');
+    grp.appendChild(el('span','eng-lab',mk.toUpperCase()));
+    STYLES.forEach(st=>{
+      const b=el('button','cfg-btn eng-opt',{needle:'NDL',led:'LED',scope:'SCP'}[st]);
+      b.dataset.mk=mk;b.dataset.st=st;
+      b.title=st+(engDisabled(mk,st)?' — conflicts with current loadout':'');
+      b.addEventListener('click',()=>{
+        if(b.disabled)return;
+        engMeters[mk]=st;saveEng();engPaint();
+        if(forceMode==='engineer')buildStrip();});
+      grp.appendChild(b);});
+    eng.appendChild(grp);});
+  engPaint();
   cfgPanel.querySelector('#btnDrill').addEventListener('click',()=>{
     raTestUntil=Date.now()+8000;updateRedAlert();closeCfg();});
 }
