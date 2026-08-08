@@ -55,6 +55,22 @@ node's agent port, it's on the strip.
   from the ⚙ console; the panel remembers your loadout. Cards whose meters
   are all scopes/LEDs auto-stack into wide bench-scope rows.
 
+## Gallery
+
+**🚨 RED ALERT** — translucent overlay, caution-tape frame, fleet still visible behind the alarm. Tap CLEAR to acknowledge.
+
+![RED ALERT overlay](docs/img/red_alert.png)
+
+**⛅ WeatherStar card** — current conditions in the Star4000 face, rotating with the local NOAA radar every 12 seconds.
+
+![WeatherStar conditions](docs/img/weatherstar.png)
+
+![Local radar face](docs/img/local_radar.png)
+
+**RETRO mode** — every card as stacked bench-scope rows; trace amplitude and sweep speed follow the load, zone-colored.
+
+![Retro oscilloscope mode](docs/img/retro_scopes.png)
+
 ## Install (panel host — Linux)
 
 **Debian/Ubuntu/Pop!_OS — grab the `.deb` from
