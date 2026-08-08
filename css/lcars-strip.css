@@ -351,3 +351,11 @@ button{font-family:var(--font-pixel);color:inherit;background:none;border:none;c
 .rasplash.go::before{animation:ras-crawl .6s linear 4;}
 @keyframes ras-crawl{to{background-position:51px 0;}}
 .rasplash[hidden]{display:none;}
+
+/* ---- weather card: rotating LOCAL RADAR face (NOAA RIDGE) ---- */
+.wx-radarwrap{display:none;flex:1;min-height:0;margin:4px 8px 2px;
+  border:1px solid #3a55c0;border-radius:4px;overflow:hidden;background:#000;}
+.wx-radar{width:100%;height:100%;object-fit:cover;display:block;
+  image-rendering:auto;}
+.wxcard.radar .wx-body{display:none;}
+.wxcard.radar .wx-radarwrap{display:block;}

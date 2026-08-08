@@ -62,10 +62,14 @@ def norm_config(c):
     w = c.get("weather")
     weather = ({"lat": float(w["lat"]), "lon": float(w["lon"])}
                if isinstance(w, dict) and "lat" in w and "lon" in w else None)
+    a = c.get("alerts") if isinstance(c.get("alerts"), dict) else {}
+    alerts = {"cpu": float(a.get("cpu", 88)), "ram": float(a.get("ram", 88)),
+              "disk": float(a.get("disk", 96)), "gputemp": float(a.get("gputemp", 85))}
     return {"title": str(c.get("title") or "FLEET MONITOR")[:40],
             "port": int(c.get("port", 8899)),
             "poll_seconds": max(1, int(c.get("poll_seconds", 2))),
             "weather": weather,
+            "alerts": alerts,
             "nodes": nodes}
 
 def load_config():
@@ -271,8 +275,9 @@ def snmp_metrics(n):
     return o
 
 def weather_metrics(n):
-    return {"online": _wx["tempF"] is not None,
-            "wx": {k: _wx[k] for k in ("tempF", "cond", "windMph", "windDir", "rh", "place", "station")}}
+    wx = {k: _wx[k] for k in ("tempF", "cond", "windMph", "windDir", "rh", "place", "station")}
+    wx["radar"] = bool(_wx_radar["bytes"])
+    return {"online": _wx["tempF"] is not None, "wx": wx}
 
 EXTRACT = {"linux": linux_metrics, "windows": win_metrics, "xp-snmp": snmp_metrics,
            "weather": weather_metrics}
@@ -303,7 +308,8 @@ def poller():
 
 # ------------------------------------------------- outside temp (api.weather.gov)
 _wx = {"tempF": None, "station": None, "cond": None, "windMph": None,
-       "windDir": None, "rh": None, "place": None}
+       "windDir": None, "rh": None, "place": None, "radar": None}
+_wx_radar = {"bytes": None, "at": 0}          # cached NOAA RIDGE gif
 
 def wx_get(url):
     req = urllib.request.Request(url, headers={
@@ -323,9 +329,11 @@ def wx_poll():
         try:
             if not _wx["station"]:
                 p = wx_get("https://api.weather.gov/points/%.4f,%.4f" % (float(lat), float(lon)))
-                rl = p["properties"].get("relativeLocation", {}).get("properties", {})
+                pr0 = p["properties"]
+                rl = pr0.get("relativeLocation", {}).get("properties", {})
                 if rl.get("city"): _wx["place"] = "%s, %s" % (rl["city"], rl.get("state", ""))
-                st = wx_get(p["properties"]["observationStations"])
+                _wx["radar"] = pr0.get("radarStation")
+                st = wx_get(pr0["observationStations"])
                 _wx["station"] = st["features"][0]["properties"]["stationIdentifier"]
             o = wx_get("https://api.weather.gov/stations/%s/observations/latest" % _wx["station"])
             pr = o["properties"]
@@ -341,11 +349,22 @@ def wx_poll():
             _wx["rh"] = round(rh) if rh is not None else None
         except Exception:
             pass                      # transient — keep the last reading
-        time.sleep(600)               # NWS updates hourly-ish; 10 min is plenty
+        try:                          # NOAA RIDGE radar snapshot for the card
+            if _wx["radar"]:
+                req = urllib.request.Request(
+                    "https://radar.weather.gov/ridge/standard/%s_0.gif" % _wx["radar"],
+                    headers={"User-Agent": "LCARS_strip (github.com/VonHoltenCodes/LCARS_strip)"})
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    _wx_radar["bytes"] = r.read()
+                    _wx_radar["at"] = int(time.time())
+        except Exception:
+            pass
+        time.sleep(300)               # radar refreshes ~5 min; obs hourly-ish
 
 def fleet():
     with _cfg_lock:
         nodes = list(_cfg["nodes"]); title = _cfg.get("title", "FLEET MONITOR")
+        alerts = _cfg.get("alerts") or {}
     with _snap_lock:
         snap = dict(_snapshot)
     out = []
@@ -354,7 +373,7 @@ def fleet():
         out.append({"id": n["id"], "name": n["name"], "host": n["host"],
                     "type": n["type"], "use": n["use"], "hero": n["hero"],
                     "retro": n["retro"], "gpu": n["gpu"], "hw": n["hw"], **m})
-    return {"title": title, "tempF": _wx["tempF"], "nodes": out}
+    return {"title": title, "tempF": _wx["tempF"], "alerts": alerts, "nodes": out}
 
 # ---------------------------------------------------------------- probe
 def probe(host):
@@ -428,6 +447,10 @@ class H(BaseHTTPRequestHandler):
         if p == "/api/config":
             with _cfg_lock:
                 return self._send(200, json.dumps(_cfg))
+        if p == "/api/radar":
+            if _wx_radar["bytes"]:
+                return self._send(200, _wx_radar["bytes"], "image/gif")
+            return self._send(404, "no radar yet", "text/plain")
         rel = "index.html" if p in ("/", "") else p.lstrip("/")
         fp = os.path.normpath(os.path.join(ROOT, rel))
         if not fp.startswith(ROOT) or not os.path.isfile(fp):

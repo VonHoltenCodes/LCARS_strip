@@ -48,7 +48,9 @@ node's agent port, it's on the strip.
 - **⛅ WeatherStar card** — a retro current-conditions card (temp, sky, wind,
   humidity) fed by the free NWS api.weather.gov — no API key. Add a
   `"type": "weather"` node and set `"weather": {"lat": .., "lon": ..}`.
-  Outside temp + date also join the clock in the header.
+  The card rotates WS4000-style between conditions and **LOCAL RADAR**
+  (nearest NOAA RIDGE site, auto-detected). Outside temp + date also join
+  the clock in the header.
 - **ENGINEER mode** — pick the instrument per metric (needle / LED / scope)
   from the ⚙ console; the panel remembers your loadout. Cards whose meters
   are all scopes/LEDs auto-stack into wide bench-scope rows.
@@ -107,7 +109,9 @@ A ready-made systemd user service for boot-to-panel is in `kiosk/` (optional).
 `/etc/lcars-strip/fleet.json` — see [`fleet.json.example`](fleet.json.example).
 Top-level: `title` (the header banner text — name your fleet; also editable
 live from the ⚙ NODES console), `port`, `poll_seconds`, `weather`
-(`{"lat", "lon"}` — enables the header temp and the WeatherStar card).
+(`{"lat", "lon"}` — enables the header temp and the WeatherStar card), and
+`alerts` (RED ALERT thresholds — defaults `{"cpu": 88, "ram": 88,
+"disk": 96, "gputemp": 85}`; a node past any of them for ~6s fires the alarm).
 Per node: `name`, `host`, `type` (`linux` | `windows` | `xp-snmp`), optional
 `use` (role caption), `gpu`, `retro` (CRT styling), `hero` (accent card),
 `community` (SNMP), `hw` (spec table shown in the drill-down).

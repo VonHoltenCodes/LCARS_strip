@@ -49,5 +49,11 @@
   "weather": {
     "lat": 41.88,
     "lon": -87.63
+  },
+  "alerts": {
+    "cpu": 88,
+    "ram": 88,
+    "disk": 96,
+    "gputemp": 85
   }
 }

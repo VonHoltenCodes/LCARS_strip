@@ -42,6 +42,7 @@ async function pollFleet(){
       if(tl&&tl.textContent!==d.title){tl.textContent=d.title;document.title='LCARS_strip // '+d.title;}}
     const ot=$('#otemp');
     if(ot){if(typeof d.tempF==='number'){ot.hidden=false;ot.textContent=d.tempF+'°F';}else ot.hidden=true;}
+    if(d.alerts)Object.keys(raTh).forEach(k=>{if(typeof d.alerts[k]==='number')raTh[k]=d.alerts[k];});
     const list=d.nodes||[];
     const key=list.map(x=>x.id).join(',');
     if(key!==memberKey){                       // membership changed: reset model
@@ -186,7 +187,14 @@ function buildFull(n){
 function buildWeather(n){
   const col=el('div','node wxcard');col.dataset.id=n.id;col._node=n;
   const head=el('div','wx-head');
-  head.appendChild(el('span','wx-title','CURRENT CONDITIONS'));col.appendChild(head);
+  const ttl=el('span','wx-title','CURRENT CONDITIONS');head.appendChild(ttl);
+  col._wxTitle=ttl;col.appendChild(head);
+  // radar face (WS4000-style screen rotation: conditions <-> local radar)
+  const rwrap=el('div','wx-radarwrap');const rimg=new Image();
+  rimg.className='wx-radar';rimg.alt='local radar';
+  rimg.onload=()=>{rwrap._ok=true;};rimg.onerror=()=>{rwrap._ok=false;};
+  rimg.src='/api/radar?'+Date.now();rwrap.appendChild(rimg);
+  col.appendChild(rwrap);col._radarWrap=rwrap;col._radarImg=rimg;
   const body=el('div','wx-body');
   const left=el('div','wx-left');
   const t=el('div','wx-temp','--°');left.appendChild(t);
@@ -200,6 +208,15 @@ function buildWeather(n){
   col._wp=el('div','wx-place','—');col.appendChild(col._wp);
   return col;
 }
+/* WS4000 screen rotation + periodic radar refresh */
+setInterval(()=>{if(location.hash==='#radar')return;   // test hook pins the radar face
+  document.querySelectorAll('.wxcard').forEach(col=>{
+  if(!col._radarWrap||!col._radarWrap._ok)return;
+  col._radarOn=!col._radarOn;
+  col.classList.toggle('radar',col._radarOn);
+  col._wxTitle.textContent=col._radarOn?'LOCAL RADAR':'CURRENT CONDITIONS';});},12000);
+setInterval(()=>{document.querySelectorAll('.wxcard').forEach(col=>{
+  if(col._radarImg)col._radarImg.src='/api/radar?'+Date.now();});},300000);
 function renderWeather(col,n){
   const w=n.wx||{};
   col.classList.toggle('offline',!n.online);
@@ -217,11 +234,13 @@ function buildStrip(){ content.innerHTML='';
    CLEAR acknowledges: alarm stands down, fault stays in the marquee until the
    node actually recovers; a new fault (or a relapse) re-fires. ---- */
 let raStreak={},raAck={},raTestUntil=0,raActive=false,raName='';
+let raTh={cpu:88,ram:88,disk:96,gputemp:85};      // overwritten by config (fleet.json "alerts")
 function updateRedAlert(){
   let worst=null;
   nodes.forEach(n=>{
     if(n.type==='weather')return;
-    const bad=!n.online||n.m.cpu>=88||n.m.ram>=88||n.m.disk>=96||(n.gputemp||0)>=85;
+    const bad=!n.online||n.m.cpu>=raTh.cpu||n.m.ram>=raTh.ram
+             ||n.m.disk>=raTh.disk||(n.gputemp||0)>=raTh.gputemp;
     if(!bad)delete raAck[n.id];                        // recovered -> ack expires
     raStreak[n.id]=bad?(raStreak[n.id]||0)+1:0;
     if(raStreak[n.id]>=3&&!raAck[n.id]&&!worst)worst=n;});   // 3 polls (~6s) sustained
@@ -509,7 +528,10 @@ else if(_h==='#end'){const w=setInterval(()=>{if(built){clearInterval(w);content
 else if(_h==='#retro'||_h==='#engineer'){const m=_h.slice(1);
   const w=setInterval(()=>{if(built){clearInterval(w);document.querySelector('[data-mode="'+m+'"]').click();}},120);}
 else if(_h==='#redalert'){const w=setInterval(()=>{if(built){clearInterval(w);raTestUntil=Date.now()+30000;updateRedAlert();}},120);}
-else if(_h==='#wx'){const w=setInterval(()=>{if(built){clearInterval(w);
-  const c=content.querySelector('.wxcard');if(c)content.scrollLeft=Math.max(0,c.offsetLeft-content.clientWidth/2+c.offsetWidth/2);}},120);}
+else if(_h==='#wx'||_h==='#radar'){const w=setInterval(()=>{if(built){clearInterval(w);
+  const c=content.querySelector('.wxcard');if(!c)return;
+  content.scrollLeft=Math.max(0,c.offsetLeft-content.clientWidth/2+c.offsetWidth/2);
+  if(_h==='#radar')setTimeout(()=>{c._radarOn=true;c.classList.add('radar');
+    c._wxTitle.textContent='LOCAL RADAR';},1200);}},120);}
 else if(_h==='#config'){const w=setInterval(()=>{if(built){clearInterval(w);openCfg();}},120);}
 })();
