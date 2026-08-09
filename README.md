@@ -78,6 +78,11 @@ node's agent port, it's on the strip.
 
 ![Node console with engineering pickers](docs/img/engineer_console.png)
 
+**In the rack** — the first deployment: GeeekPi 6.9″ in a 10″ mini rack, a
+storm rolling across the live radar.
+
+![Installed in the rack](docs/img/installed_rack.jpg)
+
 ## Install (panel host — Linux)
 
 **Debian/Ubuntu/Pop!_OS — grab the `.deb` from
