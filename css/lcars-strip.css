@@ -370,3 +370,22 @@ button{font-family:var(--font-pixel);color:inherit;background:none;border:none;c
 .cfg-btn.eng-opt.on{background:linear-gradient(180deg,#7d5cff,#5c3fd0);color:#efe9ff;
   border-color:#9a8cff;box-shadow:0 0 8px rgba(154,140,255,.5);}
 .cfg-btn.eng-opt:disabled{opacity:.28;cursor:not-allowed;border-style:dashed;}
+
+/* ---- smooth panning: no snap (JS fling handles momentum) ---- */
+.content{scroll-snap-type:none;}
+.node{scroll-snap-align:none;}
+
+/* ---- LCARS pill palette: every mode pad gets its own hue ---- */
+/* inactive = dimmed pad · active = lit pad with matching glow    */
+.mode-pills .pill{filter:saturate(.5) brightness(.62);color:#0a0d12;font-weight:700;}
+.mode-pills .pill[data-on]{filter:none;}
+.pill[data-mode="mix"]{background:linear-gradient(180deg,#ffbe66,#ff9900);}
+.pill[data-mode="mix"][data-on]{box-shadow:0 0 12px #ff9900;}
+.pill[data-mode="needle"]{background:linear-gradient(180deg,#7addff,#2bd0ff);}
+.pill[data-mode="needle"][data-on]{box-shadow:0 0 12px #2bd0ff;}
+.pill[data-mode="led"]{background:linear-gradient(180deg,#6bffa0,#22c95a);}
+.pill[data-mode="led"][data-on]{box-shadow:0 0 12px #2bff66;}
+.pill[data-mode="retro"]{background:linear-gradient(180deg,#ff9fd6,#cc5c99);}
+.pill[data-mode="retro"][data-on]{box-shadow:0 0 12px #ff6ec0;}
+.pill[data-mode="engineer"]{background:linear-gradient(180deg,#b9adff,#7d5cff);}
+.pill[data-mode="engineer"][data-on]{box-shadow:0 0 12px #9a8cff;}

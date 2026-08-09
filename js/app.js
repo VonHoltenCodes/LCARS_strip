@@ -512,11 +512,19 @@ const gear=$('#gear'); if(gear)gear.addEventListener('click',openCfg);
 function makeSortable(container,opts){
   const {itemSel,pan,onTap,onReorder}=opts;
   let startX=0,startY=0,startScroll=0,mode=null,holdT=null,dragging=null,downItem=null;
+  let vel=0,lastX=0,lastT=0;                      // px/ms, for the release fling
+  const stopFling=()=>{if(container._raf)cancelAnimationFrame(container._raf);container._raf=null;};
+  const fling=()=>{let v=vel;if(Math.abs(v)<0.05)return;
+    const step=()=>{container.scrollLeft-=v*16;v*=0.94;   // exponential glide
+      if(Math.abs(v)>0.05)container._raf=requestAnimationFrame(step);else container._raf=null;};
+    stopFling();container._raf=requestAnimationFrame(step);};
   const clear=()=>{clearTimeout(holdT);if(dragging)dragging.classList.remove('dragging');
     if(pan)container.classList.remove('grabbing');mode=null;dragging=null;downItem=null;};
   container.addEventListener('pointerdown',e=>{
+    stopFling();
     downItem=e.target.closest(itemSel);startX=e.clientX;startY=e.clientY;
     startScroll=pan?container.scrollLeft:0;mode=null;
+    vel=0;lastX=e.clientX;lastT=performance.now();
     if(downItem)holdT=setTimeout(()=>{mode='reorder';dragging=downItem;
       downItem.classList.add('dragging');if(navigator.vibrate)navigator.vibrate(15);},420);});
   window.addEventListener('pointermove',e=>{
@@ -530,12 +538,17 @@ function makeSortable(container,opts){
       e.preventDefault();return;}
     if(mode===null&&(Math.abs(dx)>10||Math.abs(dy)>10)){clearTimeout(holdT);
       mode=pan?'pan':'x';if(pan)container.classList.add('grabbing');}
-    if(mode==='pan'){container.scrollLeft=startScroll-dx;e.preventDefault();}},{passive:false});
+    if(mode==='pan'){container.scrollLeft=startScroll-dx;
+      const now=performance.now(),dt=now-lastT;
+      if(dt>0){vel=0.8*vel+0.2*((e.clientX-lastX)/dt);}   // smoothed velocity
+      lastX=e.clientX;lastT=now;
+      e.preventDefault();}},{passive:false});
   window.addEventListener('pointerup',e=>{
     if(mode==='reorder'&&onReorder)onReorder();
+    else if(mode==='pan')fling();                          // momentum on release
     else if(mode===null&&downItem&&onTap&&Math.abs(e.clientX-startX)<8&&Math.abs(e.clientY-startY)<8)onTap(downItem);
     clear();});
-  if(pan)container.addEventListener('wheel',e=>{if(e.deltaY){container.scrollLeft+=e.deltaY;e.preventDefault();}},{passive:false});
+  if(pan)container.addEventListener('wheel',e=>{if(e.deltaY){stopFling();container.scrollLeft+=e.deltaY;e.preventDefault();}},{passive:false});
 }
 function saveNodeOrder(){const ids=[...content.querySelectorAll('.node')].map(n=>n.dataset.id);
   try{localStorage.setItem('lcars.nodeOrder',JSON.stringify(ids));}catch(_){}
