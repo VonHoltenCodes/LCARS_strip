@@ -6,6 +6,10 @@ Windows XP box.**
 
 ![LCARS_strip main panel](docs/img/main_panel.png)
 
+<img src="docs/img/starbase2_rack.jpg" alt="LCARS_strip running live in a 10-inch mini rack" width="480">
+
+*Live in its natural habitat — 1U of a 10″ mini rack, between the server and the patch panels.*
+
 Designed for the **GeeekPi 6.9″ ultrawide LCD touchscreen (1424×280)** in a
 1U slot of a 10″ mini rack — but it runs in any browser and scales itself to
 any screen. One small Python server, no dependencies, no cloud, no accounts,
